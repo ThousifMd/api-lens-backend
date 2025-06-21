@@ -1,0 +1,143 @@
+# Cloudflare Workers configuration for API Lens Proxy
+name = "api-lens-workers-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers settings (disabled for custom domain)
+# workers_dev = true
+
+# Environment configuration
+[env.development]
+name = "api-lens-workers-proxy-dev"
+vars = { ENVIRONMENT = "development" }
+
+[env.staging]
+name = "api-lens-workers-proxy-staging"
+vars = { ENVIRONMENT = "staging" }
+
+[env.production]
+name = "api-lens-workers-proxy"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CORS_ORIGINS = "https://app.apilens.dev,https://dashboard.apilens.dev"
+DEFAULT_RATE_LIMIT = "1000"
+MAX_REQUEST_SIZE = "10485760"
+REQUEST_TIMEOUT = "30000"
+
+# Production KV namespaces
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "5b91c1d0b85a4901a1ca5e2e4285a266"
+
+[[env.production.kv_namespaces]]
+binding = "CACHE_KV"
+id = "2cf0d1de86e7458f84629b60492745af"
+
+# Production Durable Objects (disabled for now - can enable later)
+# [[env.production.durable_objects.bindings]]
+# name = "RATE_LIMITER"
+# class_name = "RateLimiter"
+# script_name = "api-lens-workers-proxy"
+
+# Production Analytics Engine (enable later)
+# [[env.production.analytics_engine_datasets]]
+# binding = "API_ANALYTICS"
+
+# Build configuration
+[build]
+command = "npm run build"
+cwd = "."
+watch_dir = "src"
+
+# Variables that will be available as environment variables
+[vars]
+# Public configuration
+CORS_ORIGINS = "https://app.apilens.dev,https://dashboard.apilens.dev"
+DEFAULT_RATE_LIMIT = "1000"
+MAX_REQUEST_SIZE = "10485760"  # 10MB
+REQUEST_TIMEOUT = "30000"      # 30 seconds
+
+# KV namespaces for caching and rate limiting
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "rate_limit_namespace_id"
+preview_id = "rate_limit_preview_id"
+
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "cache_namespace_id"
+preview_id = "cache_preview_id"
+
+# Durable Objects for advanced rate limiting
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+script_name = "api-lens-workers-proxy"
+
+# Analytics Engine for logging
+[[analytics_engine_datasets]]
+binding = "API_ANALYTICS"
+
+# Secrets (set via wrangler secret put command)
+# API_LENS_BACKEND_URL - Backend API URL
+# API_LENS_BACKEND_TOKEN - Backend authentication token
+# ENCRYPTION_KEY - Key for encrypting sensitive data
+# WEBHOOK_SECRET - Secret for webhook validation
+
+# OpenAI configuration
+# OPENAI_API_URL - OpenAI API base URL
+# OPENAI_DEFAULT_MODEL - Default model if not specified
+
+# Anthropic configuration  
+# ANTHROPIC_API_URL - Anthropic API base URL
+# ANTHROPIC_DEFAULT_MODEL - Default model if not specified
+
+# Google AI configuration
+# GOOGLE_AI_API_URL - Google AI API base URL
+# GOOGLE_AI_DEFAULT_MODEL - Default model if not specified
+
+# Resource limits (removed for free plan compatibility)
+# [limits]
+# cpu_ms = 10000      # 10 seconds max CPU time
+# memory_mb = 128     # 128MB memory limit
+
+# Cron triggers for maintenance tasks (disabled for initial deployment)
+# [[triggers.crons]]
+# cron = "0 */6 * * *"  # Every 6 hours
+# name = "cleanup-expired-cache"
+
+# [[triggers.crons]]
+# cron = "0 0 * * *"    # Daily at midnight
+# name = "sync-rate-limits"
+
+# Custom domains (will configure after basic deployment)
+# [[routes]]
+# pattern = "proxy.apilens.dev/*"
+# zone_name = "apilens.dev"
+
+# [[routes]]  
+# pattern = "api-proxy.apilens.dev/*"
+# zone_name = "apilens.dev"
+
+# D1 database binding (if using D1 for data storage)
+# [[d1_databases]]
+# binding = "API_LENS_DB"
+# database_name = "api-lens-proxy"
+# database_id = "your-d1-database-id"
+
+# R2 bucket for storing large files or logs
+# [[r2_buckets]]
+# binding = "LOGS_BUCKET"
+# bucket_name = "api-lens-logs"
+
+# Queue for async processing
+# [[queues.producers]]
+# queue = "analytics-queue"
+# binding = "ANALYTICS_QUEUE"
+
+# [[queues.consumers]]
+# queue = "analytics-queue"
+# max_batch_size = 100
+# max_batch_timeout = 30
