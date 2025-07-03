@@ -154,8 +154,23 @@ class LocationTimezoneService:
                     timestamp_utc = request['timestamp_utc']
                     created_at = request['created_at']
                     
-                    # Use MaxMind GeoLite2 to detect timezone and country
+                    # Use MaxMind GeoLite2 to detect timezone and ALL location data
                     detected_timezone, country_code = geo_service.detect_timezone_from_ip(ip_address)
+                    location_data = geo_service.detect_location(ip_address)
+                    
+                    # Extract additional location fields from MaxMind
+                    country_name = None
+                    city = None
+                    region = None
+                    latitude = None
+                    longitude = None
+                    
+                    if location_data:
+                        country_name = location_data.get('country_name')
+                        city = location_data.get('city')
+                        latitude = location_data.get('latitude')
+                        longitude = location_data.get('longitude')
+                        # Note: MaxMind doesn't provide region in the current implementation
                     
                     # Fallback if no detection possible
                     if not detected_timezone or not country_code:
@@ -164,36 +179,42 @@ class LocationTimezoneService:
                             # Use the original hash-based method for private IPs (development/testing)
                             hash_val = hash(ip_address) % 10
                             timezone_map = [
-                                ('America/New_York', 'US'),
-                                ('Europe/London', 'GB'),
-                                ('Asia/Tokyo', 'JP'),
-                                ('Australia/Sydney', 'AU'),
-                                ('America/Los_Angeles', 'US'),
-                                ('Europe/Berlin', 'DE'),
-                                ('Asia/Singapore', 'SG'),
-                                ('America/Toronto', 'CA'),
-                                ('Europe/Paris', 'FR'),
-                                ('Asia/Seoul', 'KR')
+                                ('America/New_York', 'US', 'United States', 'New York', 'New York', 40.7128, -74.0060),
+                                ('Europe/London', 'GB', 'United Kingdom', 'London', 'England', 51.5074, -0.1278),
+                                ('Asia/Tokyo', 'JP', 'Japan', 'Tokyo', 'Tokyo', 35.6762, 139.6503),
+                                ('Australia/Sydney', 'AU', 'Australia', 'Sydney', 'New South Wales', -33.8688, 151.2093),
+                                ('America/Los_Angeles', 'US', 'United States', 'Los Angeles', 'California', 34.0522, -118.2437),
+                                ('Europe/Berlin', 'DE', 'Germany', 'Berlin', 'Berlin', 52.5200, 13.4050),
+                                ('Asia/Singapore', 'SG', 'Singapore', 'Singapore', 'Singapore', 1.3521, 103.8198),
+                                ('America/Toronto', 'CA', 'Canada', 'Toronto', 'Ontario', 43.6532, -79.3832),
+                                ('Europe/Paris', 'FR', 'France', 'Paris', 'Île-de-France', 48.8566, 2.3522),
+                                ('Asia/Seoul', 'KR', 'South Korea', 'Seoul', 'Seoul', 37.5665, 126.9780)
                             ]
-                            detected_timezone, country_code = timezone_map[hash_val]
+                            detected_timezone, country_code, country_name, city, region, latitude, longitude = timezone_map[hash_val]
                         else:
                             # Unknown public IP, default to UTC
                             detected_timezone = 'UTC'
                             country_code = 'XX'  # Unknown country
                     
-                    # Update the request with location data (cast to correct types)
+                    # Update the request with ALL location data (cast to correct types)
                     update_query = """
                     UPDATE requests SET
                         detected_timezone = $1::varchar,
                         detected_country_code = $2::char(2),
-                        timestamp_local_detected = convert_to_detected_timezone($3, $1::varchar),
-                        created_at_local_detected = convert_to_detected_timezone($4, $1::varchar)
-                    WHERE id = $5
+                        country = $3::varchar,
+                        country_name = $4::varchar,
+                        city = $5::varchar,
+                        region = $6::varchar,
+                        latitude = $7::numeric,
+                        longitude = $8::numeric,
+                        timestamp_local_detected = convert_to_detected_timezone($9, $1::varchar),
+                        created_at_local_detected = convert_to_detected_timezone($10, $1::varchar)
+                    WHERE id = $11
                     """
                     
                     await DatabaseUtils.execute_query(
                         update_query, 
-                        [detected_timezone, country_code, timestamp_utc, created_at, request_id],
+                        [detected_timezone, country_code, country_code, country_name, city, region, latitude, longitude, timestamp_utc, created_at, request_id],
                         fetch_all=False
                     )
                     
