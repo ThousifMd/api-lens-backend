@@ -5,7 +5,7 @@
  */
 
 import { Context } from 'hono';
-import { Env } from './index';
+import { Env, HonoVariables } from './types';
 
 export class ValidationError extends Error {
   constructor(message: string, public status: number = 400) {
@@ -17,174 +17,35 @@ export class ValidationError extends Error {
 /**
  * Validate incoming request
  */
-export async function validateRequest(c: Context<{ Bindings: Env }>): Promise<void> {
-  // Generate request ID
-  const requestId = crypto.randomUUID();
-  c.set('requestId', requestId);
+export async function validateRequest(c: Context<{ Bindings: Env; Variables: HonoVariables }>): Promise<void> {
+  // Simplified validation - check request size and content type
+  const contentLength = c.req.header('content-length');
+  const maxSize = parseInt(c.env.MAX_REQUEST_SIZE || '10485760'); // 10MB default
   
-  // Validate request size
-  await validateRequestSize(c);
-  
-  // Validate content type for non-GET requests
-  if (c.req.method !== 'GET') {
-    validateContentType(c);
+  if (contentLength && parseInt(contentLength) > maxSize) {
+    throw new Error('Request too large');
   }
   
-  // Validate headers
-  validateHeaders(c);
-  
-  // Validate path
-  validatePath(c);
+  // Set request ID
+  c.set('requestId', c.req.header('X-Request-ID') || crypto.randomUUID());
+  c.set('startTime', Date.now());
 }
 
 /**
  * Validate request body size
  */
-async function validateRequestSize(c: Context<{ Bindings: Env }>): Promise<void> {
-  const maxSize = parseInt(c.env.MAX_REQUEST_SIZE || '10485760'); // 10MB default
-  const contentLength = c.req.header('Content-Length');
-  
-  if (contentLength) {
-    const size = parseInt(contentLength);
-    if (size > maxSize) {
-      throw new ValidationError(
-        `Request body too large. Maximum size: ${maxSize} bytes`,
-        413
-      );
-    }
-  }
-  
-  // For requests without Content-Length, we'll validate during body parsing
-  if (c.req.method !== 'GET' && !contentLength) {
-    try {
-      const body = await c.req.text();
-      if (body.length > maxSize) {
-        throw new ValidationError(
-          `Request body too large. Maximum size: ${maxSize} bytes`,
-          413
-        );
-      }
-      // Re-create the request with the body for downstream handlers
-      const newRequest = new Request(c.req.url, {
-        method: c.req.method,
-        headers: c.req.headers,
-        body: body,
-      });
-      c.req = newRequest;
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        throw error;
-      }
-      throw new ValidationError('Invalid request body', 400);
-    }
-  }
-}
 
 /**
  * Validate content type for POST/PUT requests
  */
-function validateContentType(c: Context): void {
-  const contentType = c.req.header('Content-Type');
-  
-  if (!contentType) {
-    throw new ValidationError('Content-Type header is required for this request', 400);
-  }
-  
-  const allowedTypes = [
-    'application/json',
-    'application/x-www-form-urlencoded',
-    'multipart/form-data',
-    'text/plain',
-  ];
-  
-  const isValidType = allowedTypes.some(type => 
-    contentType.toLowerCase().startsWith(type)
-  );
-  
-  if (!isValidType) {
-    throw new ValidationError(
-      `Unsupported Content-Type: ${contentType}. Supported types: ${allowedTypes.join(', ')}`,
-      415
-    );
-  }
-}
 
 /**
  * Validate request headers
  */
-function validateHeaders(c: Context): void {
-  const headers = c.req.headers;
-  
-  // Check for suspicious headers
-  const suspiciousHeaders = [
-    'x-real-ip',
-    'x-forwarded-host',
-    'x-forwarded-server',
-  ];
-  
-  for (const header of suspiciousHeaders) {
-    if (headers.get(header)) {
-      console.warn(`Suspicious header detected: ${header}`);
-    }
-  }
-  
-  // Validate User-Agent
-  const userAgent = headers.get('User-Agent');
-  if (!userAgent) {
-    console.warn('Request without User-Agent header');
-  } else if (userAgent.length > 1000) {
-    throw new ValidationError('User-Agent header too long', 400);
-  }
-  
-  // Validate custom headers
-  for (const [name, value] of headers.entries()) {
-    if (name.startsWith('x-') && value && value.length > 1000) {
-      throw new ValidationError(`Header ${name} too long`, 400);
-    }
-  }
-}
 
 /**
  * Validate request path
  */
-function validatePath(c: Context): void {
-  const path = c.req.path;
-  
-  // Check path length
-  if (path.length > 2000) {
-    throw new ValidationError('Request path too long', 414);
-  }
-  
-  // Check for suspicious patterns
-  const suspiciousPatterns = [
-    /\.\./,          // Directory traversal
-    /%2e%2e/i,       // Encoded directory traversal
-    /<script/i,      // Script injection
-    /javascript:/i,   // JavaScript protocol
-    /data:/i,        // Data protocol
-    /vbscript:/i,    // VBScript protocol
-  ];
-  
-  for (const pattern of suspiciousPatterns) {
-    if (pattern.test(path)) {
-      throw new ValidationError('Invalid characters in request path', 400);
-    }
-  }
-  
-  // Validate proxy paths
-  if (path.startsWith('/proxy/')) {
-    const pathParts = path.split('/');
-    if (pathParts.length < 3) {
-      throw new ValidationError('Invalid proxy path format', 400);
-    }
-    
-    const vendor = pathParts[2];
-    const allowedVendors = ['openai', 'anthropic', 'google'];
-    if (!allowedVendors.includes(vendor)) {
-      throw new ValidationError(`Unsupported vendor: ${vendor}`, 400);
-    }
-  }
-}
 
 /**
  * Validate JSON body

@@ -5,12 +5,8 @@
  */
 
 import { Context } from 'hono';
-import { Env } from './index';
-import { AuthenticationError } from './auth/types';
-import { RateLimitError } from './ratelimit';
-import { VendorError } from './vendor/types';
+import { Env, HonoVariables } from './types';
 import { ValidationError } from './validation';
-import { logAuthEvent, logRateLimit, logVendorError } from './logger';
 
 export interface ErrorResponse {
   error: string;
@@ -26,224 +22,63 @@ export interface ErrorResponse {
  * Handle different types of errors and return appropriate responses
  */
 export async function handleError(
-  c: Context<{ Bindings: Env }>,
-  error: Error
+  c: Context<{ Bindings: Env; Variables: HonoVariables }>,
+  error: unknown
 ): Promise<Response> {
-  const requestId = c.get('requestId') || crypto.randomUUID();
-  const timestamp = new Date().toISOString();
+  console.error('Request error:', error);
   
-  console.error(`Error handling request ${requestId}:`, error);
+  let status = 500;
+  let message = 'Internal Server Error';
   
-  // Handle specific error types
-  if (error instanceof AuthenticationError) {
-    return handleAuthenticationError(c, error, requestId, timestamp);
-  }
-  
-  if (error instanceof RateLimitError) {
-    return handleRateLimitError(c, error, requestId, timestamp);
-  }
-  
-  if (error instanceof VendorError) {
-    return handleVendorError(c, error, requestId, timestamp);
+  if (error instanceof Error) {
+    message = error.message;
+    
+    // Determine status code based on error message
+    if (message.includes('too large')) {
+      status = 413;
+    } else if (message.includes('not found')) {
+      status = 404;
+    } else if (message.includes('unauthorized') || message.includes('invalid api key')) {
+      status = 401;
+    } else if (message.includes('forbidden') || message.includes('access denied')) {
+      status = 403;
+    } else if (message.includes('rate limit')) {
+      status = 429;
+    }
   }
   
   if (error instanceof ValidationError) {
-    return handleValidationError(c, error, requestId, timestamp);
+    status = error.status;
+    message = error.message;
   }
   
-  // Handle generic errors
-  return handleGenericError(c, error, requestId, timestamp);
+  return c.json({
+    error: 'Request Failed',
+    message,
+    requestId: c.get('requestId') || 'unknown',
+    timestamp: new Date().toISOString()
+  }, status);
 }
 
 /**
  * Handle authentication errors
  */
-async function handleAuthenticationError(
-  c: Context<{ Bindings: Env }>,
-  error: AuthenticationError,
-  requestId: string,
-  timestamp: string
-): Promise<Response> {
-  // Log authentication failure
-  await logAuthEvent(c, 'authentication_failed', false, {
-    error: error.message,
-    status: error.status,
-  });
-  
-  const response: ErrorResponse = {
-    error: 'Authentication Failed',
-    message: error.message,
-    code: 'AUTH_ERROR',
-    requestId,
-    timestamp,
-  };
-  
-  return c.json(response, error.status);
-}
 
 /**
  * Handle rate limit errors
  */
-async function handleRateLimitError(
-  c: Context<{ Bindings: Env }>,
-  error: RateLimitError,
-  requestId: string,
-  timestamp: string
-): Promise<Response> {
-  const authResult = c.get('auth');
-  
-  // Log rate limit event
-  if (authResult) {
-    await logRateLimit(
-      c,
-      authResult.companyId,
-      'requests',
-      error.remaining,
-      error.resetTime
-    );
-  }
-  
-  const response: ErrorResponse = {
-    error: 'Rate Limit Exceeded',
-    message: error.message,
-    code: 'RATE_LIMIT_ERROR',
-    details: {
-      limit: error.limit,
-      remaining: error.remaining,
-      resetTime: error.resetTime,
-    },
-    requestId,
-    timestamp,
-    retryAfter: error.retryAfter,
-  };
-  
-  // Set rate limit headers
-  const headers: Record<string, string> = {
-    'X-RateLimit-Limit': error.limit.toString(),
-    'X-RateLimit-Remaining': error.remaining.toString(),
-    'X-RateLimit-Reset': error.resetTime.toString(),
-  };
-  
-  if (error.retryAfter) {
-    headers['Retry-After'] = error.retryAfter.toString();
-  }
-  
-  return c.json(response, 429, headers);
-}
 
 /**
  * Handle vendor API errors
  */
-async function handleVendorError(
-  c: Context<{ Bindings: Env }>,
-  error: VendorError,
-  requestId: string,
-  timestamp: string
-): Promise<Response> {
-  // Log vendor error
-  await logVendorError(c, error.vendor, error);
-  
-  const response: ErrorResponse = {
-    error: 'Vendor API Error',
-    message: error.message,
-    code: 'VENDOR_ERROR',
-    details: {
-      vendor: error.vendor,
-      vendorStatus: error.status,
-      vendorResponse: error.vendorResponse,
-    },
-    requestId,
-    timestamp,
-  };
-  
-  // Map vendor status codes to appropriate proxy status codes
-  let statusCode = 500;
-  
-  switch (error.status) {
-    case 400:
-      statusCode = 400; // Bad request
-      break;
-    case 401:
-      statusCode = 401; // Unauthorized
-      response.error = 'Vendor Authentication Failed';
-      response.message = 'Invalid vendor API key';
-      break;
-    case 403:
-      statusCode = 403; // Forbidden
-      break;
-    case 404:
-      statusCode = 404; // Not found
-      break;
-    case 429:
-      statusCode = 429; // Rate limited by vendor
-      response.error = 'Vendor Rate Limit Exceeded';
-      break;
-    case 500:
-    case 502:
-    case 503:
-    case 504:
-      statusCode = 502; // Bad gateway
-      response.error = 'Vendor Service Unavailable';
-      break;
-    default:
-      statusCode = 500;
-  }
-  
-  return c.json(response, statusCode);
-}
 
 /**
  * Handle validation errors
  */
-async function handleValidationError(
-  c: Context<{ Bindings: Env }>,
-  error: ValidationError,
-  requestId: string,
-  timestamp: string
-): Promise<Response> {
-  const response: ErrorResponse = {
-    error: 'Validation Error',
-    message: error.message,
-    code: 'VALIDATION_ERROR',
-    requestId,
-    timestamp,
-  };
-  
-  return c.json(response, error.status);
-}
 
 /**
  * Handle generic/unknown errors
  */
-async function handleGenericError(
-  c: Context<{ Bindings: Env }>,
-  error: Error,
-  requestId: string,
-  timestamp: string
-): Promise<Response> {
-  // Don't expose internal error details in production
-  const isProduction = c.env.ENVIRONMENT === 'production';
-  
-  const response: ErrorResponse = {
-    error: 'Internal Server Error',
-    message: isProduction 
-      ? 'An unexpected error occurred' 
-      : error.message,
-    code: 'INTERNAL_ERROR',
-    requestId,
-    timestamp,
-  };
-  
-  // Include stack trace in development
-  if (!isProduction) {
-    response.details = {
-      stack: error.stack,
-      name: error.name,
-    };
-  }
-  
-  return c.json(response, 500);
-}
 
 /**
  * Create standardized error response

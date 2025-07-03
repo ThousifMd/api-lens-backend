@@ -111,6 +111,68 @@ class CacheService:
             )
         return self._redis_client
     
+    async def initialize(self):
+        """Initialize the cache service"""
+        try:
+            # Initialize Redis connection
+            await self._get_redis_client()
+            logger.info("CacheService initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize CacheService: {e}")
+            raise
+    
+    async def set(self, key: str, value: Any, ttl: int = None) -> bool:
+        """Set a key-value pair in Redis cache"""
+        try:
+            redis_client = await self._get_redis_client()
+            
+            # Convert value to string if it's not already
+            if isinstance(value, (dict, list)):
+                value_str = json.dumps(value)
+            elif isinstance(value, (int, float)):
+                value_str = str(value)
+            else:
+                value_str = str(value)
+            
+            if ttl:
+                result = await redis_client.setex(key, ttl, value_str)
+            else:
+                result = await redis_client.set(key, value_str)
+            return result is not None
+        except Exception as e:
+            logger.error(f"Error setting cache key {key}: {e}")
+            return False
+    
+    async def get(self, key: str) -> Optional[str]:
+        """Get a value from Redis cache"""
+        try:
+            redis_client = await self._get_redis_client()
+            result = await redis_client.get(key)
+            return result
+        except Exception as e:
+            logger.error(f"Error getting cache key {key}: {e}")
+            return None
+    
+    async def delete(self, key: str) -> bool:
+        """Delete a key from Redis cache"""
+        try:
+            redis_client = await self._get_redis_client()
+            result = await redis_client.delete(key)
+            return result > 0
+        except Exception as e:
+            logger.error(f"Error deleting cache key {key}: {e}")
+            return False
+    
+    async def exists(self, key: str) -> bool:
+        """Check if a key exists in Redis cache"""
+        try:
+            redis_client = await self._get_redis_client()
+            result = await redis_client.exists(key)
+            return result > 0
+        except Exception as e:
+            logger.error(f"Error checking cache key {key}: {e}")
+            return False
+
     async def close(self):
         """Close Redis connections"""
         if self._connection_pool:
@@ -433,7 +495,7 @@ async def warm_api_key_cache() -> int:
     try:
         # Get most active API keys from database
         query = """
-            SELECT ak.key_hash, c.id, c.name, c.schema_name, c.rate_limit_rps, c.monthly_quota
+            SELECT ak.key_hash, c.id, c.name, c.slug as schema_name, c.rate_limit_rps, c.monthly_quota
             FROM api_keys ak
             JOIN companies c ON ak.company_id = c.id
             WHERE ak.is_active = true AND c.is_active = true
@@ -468,7 +530,7 @@ async def warm_vendor_key_cache() -> int:
     try:
         # Get companies with recent activity
         query = """
-            SELECT DISTINCT c.id, c.schema_name
+            SELECT DISTINCT c.id, c.slug as schema_name
             FROM companies c
             JOIN api_keys ak ON c.id = ak.company_id
             WHERE c.is_active = true AND ak.is_active = true
@@ -483,14 +545,14 @@ async def warm_vendor_key_cache() -> int:
             company_id = str(result['id'])
             schema_name = result['schema_name']
             
-            # Get vendor keys for this company
-            vendor_query = f"""
+            # Get vendor keys for this company (single schema approach)
+            vendor_query = """
                 SELECT vendor, encrypted_key
-                FROM {schema_name}.vendor_keys
-                WHERE is_active = true
+                FROM vendor_keys
+                WHERE company_id = $1 AND is_active = true
             """
             
-            vendor_results = await DatabaseUtils.execute_query(vendor_query, {}, fetch_all=True)
+            vendor_results = await DatabaseUtils.execute_query(vendor_query, {'company_id': UUID(company_id)}, fetch_all=True)
             
             for vendor_result in vendor_results:
                 await cache_vendor_key(

@@ -164,6 +164,16 @@ class RateLimitService:
         # Sliding window precision (number of sub-windows)
         self.WINDOW_PRECISION = 10
         
+    async def initialize(self):
+        """Initialize the rate limit service"""
+        try:
+            # Initialize Redis connection
+            await self._get_redis_client()
+            logger.info("RateLimitService initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize RateLimitService: {e}")
+            raise
+        
     async def _get_redis_client(self) -> aioredis.Redis:
         """Get Redis client with connection pooling"""
         if not self._redis_client:

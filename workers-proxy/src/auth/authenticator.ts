@@ -12,7 +12,7 @@ import {
   AuthenticationError, 
   AuthErrorCode 
 } from './types';
-import { Env } from '../index';
+import { Env } from '../types';
 import { extractAPIKey, validateAPIKeySecurity, extractAuthContext, validateIPWhitelist } from './extractor';
 import { AuthCache } from './cache';
 import { BackendAuth } from './backend';
@@ -33,7 +33,6 @@ export class Authenticator {
    */
   async authenticateRequest(request: Request): Promise<AuthenticationResult> {
     const startTime = Date.now();
-    const requestId = crypto.randomUUID();
     
     try {
       // Extract API key from request
@@ -70,6 +69,7 @@ export class Authenticator {
               code: AuthErrorCode.API_KEY_NOT_FOUND,
               message: 'API key not found',
               retryable: false,
+              name: 'AuthenticationError'
             },
             cached: false,
             responseTime: Date.now() - startTime,
@@ -144,6 +144,7 @@ export class Authenticator {
           code: AuthErrorCode.BACKEND_ERROR,
           message: 'Internal authentication error',
           retryable: true,
+          name: 'AuthenticationError'
         },
         cached: false,
         responseTime,
@@ -206,6 +207,7 @@ export class Authenticator {
         code: AuthErrorCode.COMPANY_SUSPENDED,
         message: 'Company account is suspended',
         retryable: false,
+        name: 'AuthenticationError'
       };
     }
     
@@ -215,6 +217,7 @@ export class Authenticator {
         code: AuthErrorCode.API_KEY_REVOKED,
         message: 'API key has been revoked',
         retryable: false,
+        name: 'AuthenticationError'
       };
     }
     
@@ -226,6 +229,7 @@ export class Authenticator {
           code: AuthErrorCode.API_KEY_EXPIRED,
           message: 'API key has expired',
           retryable: false,
+          name: 'AuthenticationError'
         };
       }
     }
@@ -239,6 +243,7 @@ export class Authenticator {
           message: 'Request IP address is not allowed',
           details: { ipAddress: authContext.ipAddress },
           retryable: false,
+          name: 'AuthenticationError'
         };
       }
     }
@@ -251,6 +256,7 @@ export class Authenticator {
           code: AuthErrorCode.USER_AGENT_NOT_ALLOWED,
           message: 'Request User-Agent is not allowed',
           retryable: false,
+          name: 'AuthenticationError'
         };
       }
     }
@@ -265,6 +271,7 @@ export class Authenticator {
         message: `Access to endpoint '${endpoint}' is not allowed`,
         details: { endpoint, allowedEndpoints: apiKey.permissions.allowedEndpoints },
         retryable: false,
+        name: 'AuthenticationError'
       };
     }
     
@@ -277,6 +284,7 @@ export class Authenticator {
           message: `Access to vendor '${vendor}' is not allowed`,
           details: { vendor, allowedVendors: apiKey.permissions.allowedVendors },
           retryable: false,
+          name: 'AuthenticationError'
         };
       }
     }

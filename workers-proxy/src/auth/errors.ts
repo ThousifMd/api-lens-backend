@@ -6,7 +6,7 @@
 
 import { Context } from 'hono';
 import { AuthErrorCode, AuthenticationError } from './types';
-import { Env } from '../index';
+import { Env } from '../types';
 
 export interface AuthErrorResponse {
   error: string;

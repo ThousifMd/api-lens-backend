@@ -5,6 +5,7 @@
  */
 
 import { Context } from 'hono';
+import { HonoVariables } from '../types';
 import {
   VendorRequest,
   VendorCallResult,
@@ -23,7 +24,7 @@ import {
   calculateRequestCost,
 } from './functions';
 import { getAuthResult } from '../auth';
-import { Env } from '../index';
+import { Env } from '../types';
 
 export class VendorHandler {
   private env: Env;
@@ -36,7 +37,7 @@ export class VendorHandler {
    * Handle a vendor request end-to-end
    */
   async handleRequest(
-    c: Context<{ Bindings: Env }>,
+    c: Context<{ Bindings: Env; Variables: HonoVariables }>,
     vendor: string,
     originalRequest: any
   ): Promise<Response> {

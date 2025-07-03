@@ -95,8 +95,13 @@ class DatabaseConnectionManager:
     async def _create_asyncpg_pool(self):
         """Create direct asyncpg connection pool for high-performance operations"""
         try:
-            # Remove +asyncpg suffix for asyncpg and convert ssl parameter
-            asyncpg_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("ssl=require", "ssl=require")
+            # Remove +asyncpg suffix for asyncpg - handle both formats
+            asyncpg_url = settings.DATABASE_URL
+            if "+asyncpg" in asyncpg_url:
+                asyncpg_url = asyncpg_url.replace("postgresql+asyncpg://", "postgresql://")
+            # Handle SSL parameters properly for asyncpg
+            if "ssl=require" in asyncpg_url and "sslmode" not in asyncpg_url:
+                asyncpg_url = asyncpg_url.replace("ssl=require", "sslmode=require")
             self.pool = await asyncpg.create_pool(
                 asyncpg_url,
                 min_size=2,
@@ -194,7 +199,12 @@ class DatabaseUtils:
         try:
             async with db_manager.pool.acquire() as conn:
                 if params:
-                    result = await conn.fetch(query, *params.values()) if fetch_all else await conn.fetchrow(query, *params.values())
+                    # Handle both dict and list/tuple parameter formats
+                    if isinstance(params, dict):
+                        args = list(params.values())
+                    else:
+                        args = list(params)
+                    result = await conn.fetch(query, *args) if fetch_all else await conn.fetchrow(query, *args)
                 else:
                     result = await conn.fetch(query) if fetch_all else await conn.fetchrow(query)
                 

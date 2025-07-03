@@ -1,5 +1,6 @@
 import google.generativeai as genai
 import os
+from app.services.pricing import PricingService
 
 class GeminiClient:
     def __init__(self, api_key=None):
@@ -39,8 +40,14 @@ class GeminiClient:
             prompt_tokens = len(prompt.split()) * 1.3  # Approximate tokens per word
             completion_tokens = len(response.text.split()) * 1.3
             
-            # Basic cost calculation (you might want to make this more sophisticated)
-            cost = (prompt_tokens * 0.00001) + (completion_tokens * 0.00002)  # Example rates
+            # Use PricingService for accurate cost calculation
+            cost_result = await PricingService.calculate_cost(
+                vendor="google",
+                model=model,
+                input_tokens=int(prompt_tokens),
+                output_tokens=int(completion_tokens)
+            )
+            cost = cost_result.get("total_cost", 0.0)
             
             return {
                 "content": response.text,
@@ -97,4 +104,45 @@ class GeminiClient:
             }
 
         except Exception as e:
-            raise Exception(f"Gemini chat completion error: {str(e)}") 
+            raise Exception(f"Gemini chat completion error: {str(e)}")
+    
+    async def generate_image(self, prompt: str, model: str = "gemini-1.5-flash", **kwargs):
+        """Generate image description using Gemini (Google doesn't have direct image generation via Gemini API)"""
+        try:
+            # Since Google's Imagen API is separate and not readily available,
+            # we'll generate a detailed description like Anthropic
+            description_prompt = f"Create a detailed visual description for this image prompt: '{prompt}'. Describe the scene, colors, composition, style, lighting, and mood in rich detail as if instructing an AI image generator."
+            
+            generation_config = {
+                "temperature": 0.8,
+                "max_output_tokens": 500,
+            }
+
+            # Make the API call
+            gemini_model = genai.GenerativeModel(model_name=model)
+            response = await gemini_model.generate_content_async(
+                contents=[{"role": "user", "parts": [{"text": description_prompt}]}],
+                generation_config=generation_config
+            )
+            
+            # Estimate tokens
+            prompt_tokens = int(len(description_prompt.split()) * 1.3)
+            completion_tokens = int(len(response.text.split()) * 1.3)
+            
+            # Return in a format similar to image generation APIs
+            return {
+                "data": [{
+                    "description": response.text,
+                    "prompt": prompt,
+                    "model": model,
+                    "type": "enhanced_description"
+                }],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens
+                }
+            }
+
+        except Exception as e:
+            raise Exception(f"Gemini image description error: {str(e)}") 

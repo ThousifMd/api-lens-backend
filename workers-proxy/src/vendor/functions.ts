@@ -20,7 +20,7 @@ import {
   getModelMapping,
   MODEL_MAPPINGS,
 } from './configs';
-import { Env } from '../index';
+import { Env } from '../types';
 
 /**
  * Determine vendor from model name
@@ -33,7 +33,7 @@ export function routeToVendor(model: string): VendorConfig {
   const mapping = getModelMapping(model);
   
   if (mapping) {
-    return getVendorConfig(mapping.vendor);
+    return getVendorConfig(mapping.vendor as VendorType);
   }
   
   // Fallback: Try to infer vendor from model name patterns
@@ -353,6 +353,7 @@ export async function callVendorAPI(
       } else {
         const errorData = await response.json().catch(() => ({}));
         const vendorError: VendorError = {
+          name: 'VendorError',
           type: 'api_error',
           code: config.errorCodes[response.status] || 'unknown_error',
           message: errorData.error?.message || errorData.message || `HTTP ${response.status}`,
@@ -368,6 +369,7 @@ export async function callVendorAPI(
       }
     } catch (error) {
       lastError = {
+        name: 'VendorError',
         type: 'network_error',
         code: 'request_failed',
         message: error instanceof Error ? error.message : 'Unknown network error',

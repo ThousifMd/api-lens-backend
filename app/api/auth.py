@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Header
 from app.services.auth import generate_api_key, validate_api_key, revoke_api_key, list_company_api_keys
 from uuid import UUID
 from typing import List
@@ -16,6 +16,32 @@ async def check_api_key(api_key: str):
     if not result:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
     return result
+
+@router.get("/verify")
+async def verify_api_key(authorization: str = Header(None)):
+    """Verify API key from Authorization header"""
+    if not authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization header required")
+    
+    # Extract API key from Authorization header
+    api_key = None
+    if authorization.startswith("Bearer "):
+        api_key = authorization[7:]
+    elif authorization.startswith("als_"):
+        api_key = authorization
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization format")
+    
+    result = await validate_api_key(api_key)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+    
+    return {
+        "valid": True,
+        "company_id": str(result.id),
+        "company_name": result.name,
+        "tier": result.tier
+    }
 
 @router.post("/revoke")
 async def revoke_key(api_key_id: UUID):

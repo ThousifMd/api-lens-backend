@@ -4,8 +4,8 @@
  * Redis caching layer for authentication with KV fallback
  */
 
-import { Company, APIKey, RedisAuthCache, CacheEntry, AuthErrorCode } from './types';
-import { Env } from '../index';
+import { Company, APIKey, RedisAuthCache, CacheEntry } from './types';
+import { Env } from '../types';
 
 export class AuthCache {
   private env: Env;
@@ -14,8 +14,8 @@ export class AuthCache {
   
   constructor(env: Env) {
     this.env = env;
-    this.redisUrl = env.REDIS_URL;
-    this.redisToken = env.REDIS_TOKEN;
+    this.redisUrl = env['REDIS_URL'];
+    this.redisToken = env['REDIS_TOKEN'];
   }
   
   /**

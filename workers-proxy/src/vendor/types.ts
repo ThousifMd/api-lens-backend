@@ -98,6 +98,7 @@ export interface VendorResponse {
 }
 
 export interface VendorError {
+  name: string;
   type: string;
   code: string;
   message: string;

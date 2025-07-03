@@ -11,8 +11,42 @@ from sqlalchemy.exc import IntegrityError
 from ..database import get_db_session, DatabaseUtils
 from ..config import get_settings
 from ..utils.logger import get_logger
-from models.api_key import APIKey, APIKeyCreate, APIKeyWithSecret
-from models.company import Company
+from ..utils.db_errors import DatabaseErrorHandler, handle_database_error, validate_before_insert
+from pydantic import BaseModel
+from typing import Optional
+
+# Simple Pydantic models for auth service
+class APIKeyCreate(BaseModel):
+    company_id: str
+    description: Optional[str] = None
+
+class APIKeyWithSecret(BaseModel):
+    id: str
+    company_id: str
+    description: Optional[str]
+    api_key: str
+    created_at: datetime
+
+class APIKey(BaseModel):
+    id: str
+    company_id: str
+    description: Optional[str]
+    created_at: datetime
+    last_used_at: Optional[datetime]
+    is_active: bool
+
+class CompanySettings(BaseModel):
+    rate_limit_rps: int
+    monthly_quota: int
+
+class Company(BaseModel):
+    id: str
+    name: str
+    schema_name: str
+    settings: Optional[CompanySettings] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
 from .cache import cache_api_key_mapping, get_cached_company, invalidate_company_cache
 
 settings = get_settings()
@@ -137,12 +171,24 @@ async def generate_api_key(company_id: str, name: str = "Default API Key") -> AP
         # Generate secure API key
         secret_key = generate_secure_api_key()
         key_hash = hash_api_key(secret_key)
+        key_prefix = secret_key[:7]  # Extract prefix (e.g., "als_abc")
+        
+        # Validate data before insertion
+        api_key_data = {
+            'company_id': company_uuid,
+            'key_hash': key_hash,
+            'name': name.strip()
+        }
+        
+        is_valid, validation_error = validate_before_insert('api_keys', api_key_data)
+        if not is_valid:
+            raise ValueError(validation_error)
         
         # Insert into database using new database layer
         query = """
-            INSERT INTO api_keys (company_id, key_hash, name, is_active, created_at)
-            VALUES ($1, $2, $3, true, NOW())
-            RETURNING id, company_id, key_hash, name, is_active, created_at, last_used_at
+            INSERT INTO api_keys (company_id, key_hash, key_prefix, name, is_active, created_at)
+            VALUES ($1, $2, $3, $4, true, NOW())
+            RETURNING id, company_id, key_hash, key_prefix, name, is_active, created_at, last_used_at
         """
         
         result = await DatabaseUtils.execute_query(
@@ -150,6 +196,7 @@ async def generate_api_key(company_id: str, name: str = "Default API Key") -> AP
             {
                 'company_id': company_uuid,
                 'key_hash': key_hash,
+                'key_prefix': key_prefix,
                 'name': name.strip()
             },
             fetch_all=False
@@ -162,25 +209,21 @@ async def generate_api_key(company_id: str, name: str = "Default API Key") -> AP
         
         # Create response object
         api_key_data = APIKeyWithSecret(
-            id=result['id'],
-            company_id=result['company_id'],
-            key_hash=result['key_hash'],
-            name=result['name'],
-            is_active=result['is_active'],
-            created_at=result['created_at'],
-            last_used_at=result['last_used_at'],
-            secret_key=secret_key
+            id=str(result['id']),
+            company_id=str(result['company_id']),
+            description=result['name'],  # Use name as description
+            api_key=secret_key,
+            created_at=result['created_at']
         )
         
         logger.info(f"Generated new API key '{name}' for company {company_id}")
         return api_key_data
         
-    except IntegrityError as e:
-        logger.error(f"Database integrity error creating API key: {e}")
-        raise ValueError("Failed to create API key - database constraint violation")
     except Exception as e:
-        logger.error(f"Error generating API key for company {company_id}: {e}")
-        raise
+        # Handle database errors with structured error handling
+        error_info = handle_database_error(e)
+        logger.error(f"Error generating API key for company {company_id}: {error_info['user_message']}")
+        raise ValueError(error_info['user_message'])
 
 async def validate_api_key(api_key: str) -> Optional[Company]:
     """
@@ -200,6 +243,7 @@ async def validate_api_key(api_key: str) -> Optional[Company]:
         - Cache invalidation on multiple failures
         - Usage tracking
     """
+    
     if not api_key:
         logger.warning("Empty API key provided for validation")
         _performance_stats['validation_errors'] += 1
@@ -228,11 +272,11 @@ async def validate_api_key(api_key: str) -> Optional[Company]:
         
         _performance_stats['cache_misses'] += 1
         
-        # 2. Fallback to database
+        # 2. Fallback to database (Schema v2 compatible)
         query = """
             SELECT ak.id, ak.company_id, ak.key_hash, ak.name, ak.is_active, 
                    ak.created_at, ak.last_used_at,
-                   c.id as company_id, c.name as company_name, c.schema_name,
+                   c.id as company_id, c.name as company_name, c.slug,
                    c.rate_limit_rps, c.monthly_quota, c.created_at as company_created_at,
                    c.updated_at as company_updated_at
             FROM api_keys ak
@@ -242,7 +286,7 @@ async def validate_api_key(api_key: str) -> Optional[Company]:
         
         result = await DatabaseUtils.execute_query(
             query,
-            {'key_hash': key_hash},
+            [key_hash],
             fetch_all=False
         )
         
@@ -256,21 +300,26 @@ async def validate_api_key(api_key: str) -> Optional[Company]:
         # Update last used timestamp
         await _update_last_used_timestamp(result['id'])
         
-        # Create company object
-        company = Company(
-            id=result['company_id'],
-            name=result['company_name'],
-            schema_name=result['schema_name'],
+        # Create company object with proper settings
+        
+        settings = CompanySettings(
             rate_limit_rps=result['rate_limit_rps'],
-            monthly_quota=result['monthly_quota'],
+            monthly_quota=result['monthly_quota']
+        )
+        
+        company = Company(
+            id=str(result['company_id']),
+            name=result['company_name'],
+            schema_name=result['slug'],  # Use slug as schema_name for Schema v2
+            settings=settings,
             created_at=result['company_created_at'],
             updated_at=result['company_updated_at']
         )
         
         # Cache the API key mapping for future requests
         api_key_cache_data = {
-            'id': result['id'],
-            'company_id': result['company_id'],
+            'id': str(result['id']),
+            'company_id': str(result['company_id']),
             'key_hash': result['key_hash'],
             'name': result['name'],
             'is_active': result['is_active'],
@@ -380,13 +429,12 @@ async def list_company_api_keys(company_id: str) -> List[APIKey]:
         api_keys = []
         for row in results:
             api_key = APIKey(
-                id=row['id'],
-                company_id=row['company_id'],
-                key_hash=row['key_hash'],
-                name=row['name'],
-                is_active=row['is_active'],
+                id=str(row['id']),
+                company_id=str(row['company_id']),
+                description=row['name'],
                 created_at=row['created_at'],
-                last_used_at=row['last_used_at']
+                last_used_at=row['last_used_at'],
+                is_active=row['is_active']
             )
             api_keys.append(api_key)
         
@@ -427,7 +475,7 @@ async def _get_company_by_id(company_id: UUID) -> Optional[Company]:
     """Get company data by ID"""
     try:
         query = """
-            SELECT id, name, schema_name, rate_limit_rps, monthly_quota, created_at, updated_at
+            SELECT id, name, slug as schema_name, rate_limit_rps, monthly_quota, created_at, updated_at
             FROM companies
             WHERE id = $1
         """
@@ -439,12 +487,17 @@ async def _get_company_by_id(company_id: UUID) -> Optional[Company]:
         )
         
         if result:
+            
+            settings = CompanySettings(
+                rate_limit_rps=result['rate_limit_rps'],
+                monthly_quota=result['monthly_quota']
+            )
+            
             return Company(
-                id=result['id'],
+                id=str(result['id']),
                 name=result['name'],
                 schema_name=result['schema_name'],
-                rate_limit_rps=result['rate_limit_rps'],
-                monthly_quota=result['monthly_quota'],
+                settings=settings,
                 created_at=result['created_at'],
                 updated_at=result['updated_at']
             )

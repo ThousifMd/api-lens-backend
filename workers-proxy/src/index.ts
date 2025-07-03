@@ -18,58 +18,10 @@ import { logRequest } from './logger';
 import { validateRequest } from './validation';
 import { handleError } from './error-handler';
 
-// Environment bindings interface
-export interface Env {
-  // KV Namespaces
-  RATE_LIMIT_KV: KVNamespace;
-  CACHE_KV: KVNamespace;
-  
-  // Durable Objects
-  RATE_LIMITER: DurableObjectNamespace;
-  
-  // Analytics Engine
-  API_ANALYTICS: AnalyticsEngineDataset;
-  
-  // Environment Variables
-  ENVIRONMENT: string;
-  CORS_ORIGINS: string;
-  DEFAULT_RATE_LIMIT: string;
-  MAX_REQUEST_SIZE: string;
-  REQUEST_TIMEOUT: string;
-  
-  // Rate Limiting Configuration
-  DEFAULT_RATE_LIMIT_PER_MINUTE?: string;
-  DEFAULT_RATE_LIMIT_PER_HOUR?: string;
-  DEFAULT_RATE_LIMIT_PER_DAY?: string;
-  DEFAULT_COST_LIMIT_PER_MINUTE?: string;
-  DEFAULT_COST_LIMIT_PER_HOUR?: string;
-  DEFAULT_COST_LIMIT_PER_DAY?: string;
-  
-  // Secrets (configured via wrangler secret)
-  API_LENS_BACKEND_URL: string;
-  API_LENS_BACKEND_TOKEN: string;
-  ENCRYPTION_KEY: string;
-  WEBHOOK_SECRET: string;
-  
-  // Redis Configuration (optional)
-  REDIS_URL?: string;
-  REDIS_TOKEN?: string;
-  
-  // Vendor API URLs
-  OPENAI_API_URL: string;
-  ANTHROPIC_API_URL: string;
-  GOOGLE_AI_API_URL: string;
-  
-  // Vendor API Keys (optional - for fallback when no BYOK)
-  OPENAI_API_KEY?: string;
-  ANTHROPIC_API_KEY?: string;
-  GOOGLE_AI_API_KEY?: string;
-  COHERE_API_KEY?: string;
-  MISTRAL_API_KEY?: string;
-}
+import { Env, HonoVariables } from './types';
 
 // Create Hono app
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: HonoVariables }>();
 
 // Global middleware
 app.use('*', logger());
@@ -118,7 +70,7 @@ app.get('/health', (c) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0',
     environment: c.env.ENVIRONMENT || 'unknown',
-    region: c.cf?.colo || 'unknown',
+    region: 'unknown',
   });
 });
 
@@ -161,7 +113,7 @@ app.get('/status', async (c) => {
     status: 'operational',
     timestamp: new Date().toISOString(),
     environment: c.env.ENVIRONMENT || 'unknown',
-    region: c.cf?.colo || 'unknown',
+    region: 'unknown',
     performance: {
       responseTimeMs: responseTime,
       kvStatus,
@@ -207,14 +159,14 @@ app.use('/proxy/*', async (c, next) => {
     c.set('auth', authResult);
     
     // 2. Check rate limits (with estimated cost if available)
-    const estimatedCost = c.get('estimatedCost') || 0;
+    const estimatedCost = (c.get('estimatedCost') as number) || 0;
     await checkRateLimit(c, estimatedCost);
     
     // 3. Continue to vendor handler
     await next();
     
     // 4. Increment rate limit counters after successful request
-    const actualCost = c.get('actualCost') || c.get('requestCost') || 0;
+    const actualCost = (c.get('actualCost') as number) || (c.get('requestCost') as number) || 0;
     if (c.res && c.res.status < 400) {
       incrementRateLimitCounters(c, actualCost).catch(err => {
         console.error('Failed to increment rate limit counters:', err);
@@ -278,9 +230,9 @@ app.onError((error, c) => {
 
 // Scheduled event handler for cron jobs
 export async function scheduled(
-  controller: ScheduledController,
+  controller: any,
   env: Env,
-  ctx: ExecutionContext
+  ctx: any
 ): Promise<void> {
   console.log('Scheduled event triggered:', controller.cron);
   

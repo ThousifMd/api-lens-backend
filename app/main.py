@@ -8,13 +8,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import db_health_check, init_database, close_database, db_manager
 from app.api.auth import router as auth_router
-from app.api.proxy import router as proxy_router
-from app.api.admin import admin_router
-from app.api.company import company_router
-from app.api.analytics import analytics_router
+from app.api.proxy_optimized import router as proxy_optimized_router
+from app.api.health import router as health_router
 from app.services.auth import get_auth_performance_stats
 from app.config import get_settings
 from app.utils.logger import get_logger
+from app.middleware.error_handling import ErrorHandlingMiddleware, RequestLoggingMiddleware
+from app.middleware.security import SecurityHeadersMiddleware, RateLimitingMiddleware
 
 settings = get_settings()
 logger = get_logger(__name__)
@@ -102,34 +102,50 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
+# Add Security Middleware (order matters - first added is outermost)
+if settings.SECURITY_HEADERS_ENABLED:
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        force_https=settings.SECURITY_HSTS_ENABLED,
+        hsts_max_age=settings.SECURITY_HSTS_MAX_AGE,
+        frame_options=settings.SECURITY_FRAME_OPTIONS,
+        content_type_nosniff=settings.SECURITY_CONTENT_TYPE_NOSNIFF,
+        xss_protection=settings.SECURITY_XSS_PROTECTION
+    )
+
+# Add Error Handling Middleware
+app.add_middleware(ErrorHandlingMiddleware)
+
+# Add Request Logging Middleware
+if settings.LOG_STRUCTURED:
+    app.add_middleware(RequestLoggingMiddleware)
+
+# Add Rate Limiting Middleware
+if settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(
+        RateLimitingMiddleware,
+        default_rate_limit=settings.RATE_LIMIT_DEFAULT_PER_MINUTE,
+        rate_limit_window=60
+    )
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
+# Include routers
+app.include_router(health_router)
 app.include_router(auth_router)
-app.include_router(proxy_router)
-app.include_router(admin_router)
-app.include_router(company_router)
-app.include_router(analytics_router)
+app.include_router(proxy_optimized_router)
 
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """Basic health check endpoint"""
-    return {
-        "status": "healthy", 
-        "version": settings.VERSION,
-        "app_name": settings.APP_NAME,
-        "environment": settings.ENVIRONMENT
-    }
-
-@app.get("/health/db", tags=["Health"])
+# Legacy health endpoints (keeping for backward compatibility)
+@app.get("/health/db", tags=["Health", "Legacy"])
 async def database_health_check():
-    """Comprehensive database health check endpoint"""
+    """Legacy database health check endpoint"""
     health_status = await db_health_check()
     
     if health_status["status"] == "healthy":
@@ -139,9 +155,9 @@ async def database_health_check():
     else:
         return JSONResponse(content=health_status, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-@app.get("/health/connections", tags=["Health"])
+@app.get("/health/connections", tags=["Health", "Legacy"])
 async def connection_stats():
-    """Get database connection statistics"""
+    """Legacy database connection statistics"""
     if not db_manager._is_initialized:
         return JSONResponse(
             content={"error": "Database not initialized"}, 
@@ -151,9 +167,9 @@ async def connection_stats():
     stats = db_manager.get_connection_stats()
     return {"connection_stats": stats}
 
-@app.get("/health/auth", tags=["Health"])
+@app.get("/health/auth", tags=["Health", "Legacy"])
 async def auth_performance_stats():
-    """Get authentication service performance statistics"""
+    """Legacy authentication service performance statistics"""
     stats = get_auth_performance_stats()
     return {"auth_performance": stats}
 

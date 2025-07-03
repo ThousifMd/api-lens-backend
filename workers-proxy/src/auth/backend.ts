@@ -5,7 +5,7 @@
  */
 
 import { Company, APIKey, AuthErrorCode, AuthenticationError } from './types';
-import { Env } from '../index';
+import { Env } from '../types';
 
 export class BackendAuth {
   private env: Env;
