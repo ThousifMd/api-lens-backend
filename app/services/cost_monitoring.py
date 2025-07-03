@@ -16,12 +16,11 @@ from ..utils.db_errors import handle_database_error
 logger = get_logger(__name__)
 
 class AlertType(Enum):
-    """Types of cost alerts"""
-    THRESHOLD_EXCEEDED = "threshold_exceeded"
-    BUDGET_WARNING = "budget_warning"
-    BUDGET_EXCEEDED = "budget_exceeded"
-    ANOMALY_DETECTED = "anomaly_detected"
-    SPIKE_DETECTED = "spike_detected"
+    """Types of cost alerts - must match database constraint"""
+    USER_DAILY = "user_daily"
+    USER_MONTHLY = "user_monthly"
+    COMPANY_DAILY = "company_daily"
+    COMPANY_MONTHLY = "company_monthly"
 
 class AlertSeverity(Enum):
     """Alert severity levels"""

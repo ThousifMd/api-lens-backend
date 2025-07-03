@@ -151,8 +151,8 @@ class DatabaseErrorHandler:
         # Generic messages based on error type
         if error_type == DBErrorType.UNIQUE_VIOLATION:
             if column_name:
-                return f"The {column_name} already exists and must be unique"
-            return "This record already exists"
+                return f"The {column_name} already exists and violates unique constraint"
+            return "This record already exists and violates unique constraint"
         
         elif error_type == DBErrorType.FOREIGN_KEY_VIOLATION:
             if "is not present in table" in detail:

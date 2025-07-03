@@ -18,7 +18,7 @@ from app.database import DatabaseUtils, init_database, close_database
 from app.services.auth import generate_api_key, validate_api_key, list_company_api_keys
 from app.services.analytics import AnalyticsService
 from app.services.cost_monitoring import CostMonitoringService
-from app.services.pricing import FixedPricingService as PricingService
+from app.services.pricing_old import PricingService
 from app.services.cache import cache_health_check, get_cache_stats
 from app.utils.db_errors import DatabaseErrorHandler, handle_database_error, validate_before_insert
 
@@ -122,8 +122,8 @@ class SchemaComplianceTests:
             else:
                 raise Exception("Failed to generate test API key")
             
-            # Create test user
-            self.test_user_id = str(uuid4())
+            # Create test user - use the RETURNED id for foreign key references
+            test_client_user_id = str(uuid4())
             user_query = """
                 INSERT INTO client_users (company_id, client_user_id, created_at, last_seen_at)
                 VALUES ($1, $2, NOW(), NOW())
@@ -132,11 +132,12 @@ class SchemaComplianceTests:
             
             user_result = await DatabaseUtils.execute_query(
                 user_query,
-                [self.test_company_id, self.test_user_id],
+                [self.test_company_id, test_client_user_id],
                 fetch_all=False
             )
             
             if user_result:
+                self.test_user_id = user_result['id']  # Use the database-generated UUID
                 print(f"  {Colors.GREEN}✓{Colors.END} Created test user: {self.test_user_id}")
             else:
                 raise Exception("Failed to create test user")
@@ -428,7 +429,7 @@ class SchemaComplianceTests:
             if self.test_company_id:
                 # Test cost alert creation
                 alert_config = {
-                    'alert_type': 'company_daily',  # Must be one of: user_daily, user_monthly, company_daily, company_monthly
+                    'alert_type': 'company_daily',  # Valid alert type from database constraint
                     'threshold_amount': 100.0,
                     'is_active': True
                 }

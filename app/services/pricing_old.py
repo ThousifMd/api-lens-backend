@@ -223,7 +223,7 @@ class PricingService:
                 "output_cost": total_cost,
                 "total_cost": total_cost,
                 "pricing_type": pricing_type,
-                "pricing_source": pricing_data.get("source", "unknown"),
+                "pricing_source": pricing_data.get("source", "database_default"),
                 "image_count": image_count,
                 "per_image_price": per_image_price,
                 "currency": pricing_data.get("currency", "USD")
@@ -238,7 +238,7 @@ class PricingService:
                 "output_cost": per_request_price,
                 "total_cost": per_request_price,
                 "pricing_type": pricing_type,
-                "pricing_source": pricing_data.get("source", "unknown"),
+                "pricing_source": pricing_data.get("source", "database_default"),
                 "per_request_price": per_request_price,
                 "currency": pricing_data.get("currency", "USD")
             }
@@ -257,7 +257,7 @@ class PricingService:
                 "output_cost": round(output_cost, 6),
                 "total_cost": round(total_cost, 6),
                 "pricing_type": pricing_type,
-                "pricing_source": pricing_data.get("source", "unknown"),
+                "pricing_source": pricing_data.get("source", "database_default"),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "input_price_per_1k": input_price_per_1k,
