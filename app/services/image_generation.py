@@ -106,13 +106,12 @@ class ImageGenerationService:
             steps = kwargs.get("steps", 50)
             guidance_scale = kwargs.get("guidance_scale", 7.5)
             
-            # Calculate cost before generation
+            # Calculate cost before generation using correct pricing service
             cost_result = await PricingService.calculate_cost(
                 vendor=vendor,
                 model=model,
                 input_tokens=0,  # Image generation doesn't use input tokens
                 output_tokens=0,  # Image generation doesn't use output tokens
-                company_id=company_id,
                 image_count=image_count
             )
             
@@ -147,7 +146,7 @@ class ImageGenerationService:
                 seed=seed,
                 steps=steps,
                 guidance_scale=guidance_scale,
-                cost=cost_result.get("total_cost", 0),
+                cost=cost_result.get("image_cost", cost_result.get("total_cost", 0)),
                 image_urls=generation_result["image_urls"]
             )
             
@@ -457,12 +456,13 @@ class ImageGenerationService:
                 id, request_id, company_id, client_user_id, vendor_id, model_id,
                 method, endpoint, prompt, negative_prompt, image_count, image_urls,
                 image_dimensions, image_quality, image_style, seed, generation_steps,
-                guidance_scale, total_cost, timestamp_utc, status_code, total_latency_ms
+                guidance_scale, input_cost, output_cost, timestamp_utc, status_code, total_latency_ms
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
             ) RETURNING id, request_id
             """
             
+            # For images: input_cost = 0, output_cost = image cost, total_cost auto-generates
             result = await DatabaseUtils.execute_query(
                 log_query,
                 [
@@ -471,7 +471,7 @@ class ImageGenerationService:
                     "POST", f"/v1/{vendor}/images/generations",
                     prompt, negative_prompt, image_count, image_urls,
                     dimensions, quality, style, seed, steps,
-                    guidance_scale, cost, datetime.utcnow(), 200, 2500
+                    guidance_scale, 0.0, cost, datetime.utcnow(), 200, 2500
                 ],
                 fetch_all=False
             )
