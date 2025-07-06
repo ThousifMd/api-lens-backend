@@ -18,6 +18,7 @@ from app.utils.location import LocationService, TimezoneUtils
 from app.services.pricing import FixedPricingService as PricingService
 from app.middleware.request_middleware import get_client_info, authenticate_api_key
 from app.utils.validation import InputValidator, RequestValidator, ValidationError
+from app.services.token_calculator import TokenCalculator
 
 router = APIRouter(prefix="/proxy", tags=["Proxy Optimized"])
 logger = get_logger(__name__)
@@ -162,24 +163,37 @@ async def get_or_create_vendor_model(vendor_name: str, model_name: str) -> Optio
         
         # If not found, create vendor first, then model
         vendor_result = await DatabaseUtils.execute_query("""
-            INSERT INTO vendors (name, display_name) 
-            VALUES ($1, $2) 
-            ON CONFLICT (name) DO UPDATE SET display_name = EXCLUDED.display_name
+            INSERT INTO vendors (id, name, slug, is_active, is_supported)
+            VALUES (gen_random_uuid(), $1, $2, true, true)
+            ON CONFLICT (name) DO NOTHING
             RETURNING id
-        """, [vendor_name, vendor_name.title()], fetch_all=True)
+        """, [vendor_name, vendor_name], fetch_all=True)
         
-        if not vendor_result:
-            logger.error(f"Failed to create vendor: {vendor_name}")
-            return None
+        if vendor_result:
+            vendor_id = vendor_result[0]['id']
+        else:
+            # Vendor already exists, get its ID
+            vendor_query = await DatabaseUtils.execute_query("""
+                SELECT id FROM vendors WHERE name = $1
+            """, [vendor_name], fetch_all=True)
             
-        vendor_id = vendor_result[0]['id']
+            if not vendor_query:
+                logger.error(f"Failed to create or find vendor: {vendor_name}")
+                return None
+            vendor_id = vendor_query[0]['id']
         
         # Create model
         model_result = await DatabaseUtils.execute_query("""
-            INSERT INTO vendor_models (vendor_id, name, display_name, model_type) 
-            VALUES ($1, $2, $3, 'chat') 
+            INSERT INTO vendor_models (
+                id, vendor_id, name, slug, model_type, 
+                input_price_per_1k, output_price_per_1k
+            )
+            VALUES (
+                gen_random_uuid(), $1, $2, $3, 'chat', 
+                0.001, 0.002
+            ) 
             RETURNING id
-        """, [vendor_id, model_name, model_name], fetch_all=True)
+        """, [vendor_id, model_name, model_name.lower().replace('.', '-')], fetch_all=True)
         
         if model_result:
             logger.info(f"Created new vendor model: {vendor_name}/{model_name}")
@@ -296,6 +310,22 @@ async def receive_optimized_log_entry(
         client_ip = client_info.get('ip_address')
         location_info = await LocationService.get_location_from_ip(client_ip)
         
+        # Ensure location data is always populated (use defaults if missing)
+        if not location_info or location_info.get('source') == 'default':
+            logger.warning(f"Using default location for IP {client_ip}")
+            # Use the provided country/region if available, otherwise defaults
+            location_info = {
+                'country': log_entry.country or 'US',
+                'country_name': 'United States',
+                'region': log_entry.region or 'California',
+                'city': 'San Francisco',
+                'timezone': 'America/Los_Angeles',
+                'latitude': 37.7749,
+                'longitude': -122.4194,
+                'utc_offset': '-0800',
+                'source': 'fallback'
+            }
+        
         # 1. Get or create vendor model
         vendor_model_id = await get_or_create_vendor_model(
             log_entry.vendor, 
@@ -328,12 +358,23 @@ async def receive_optimized_log_entry(
                 if session_result:
                     client_user_id = session_result[0]['client_user_id']
         
-        # 3. Get real pricing from database
+        # 3. Calculate/estimate tokens if needed
+        calculated_input_tokens, calculated_output_tokens = TokenCalculator.calculate_tokens(
+            vendor=log_entry.vendor,
+            model=log_entry.model,
+            input_tokens=log_entry.inputTokens,
+            output_tokens=log_entry.outputTokens,
+            endpoint=log_entry.endpoint,
+            request_data=None,  # Could be passed if available
+            response_data=None  # Could be passed if available
+        )
+        
+        # Use calculated tokens for cost calculation
         cost_result = await PricingService.calculate_cost(
             vendor=log_entry.vendor,
             model=log_entry.model, 
-            input_tokens=log_entry.inputTokens,
-            output_tokens=log_entry.outputTokens,
+            input_tokens=calculated_input_tokens,
+            output_tokens=calculated_output_tokens,
             company_id=UUID(company_id)
         )
         
@@ -399,8 +440,8 @@ async def receive_optimized_log_entry(
             longitude,  # longitude - from location service
             client_info.get('user_agent'),  # user_agent - real user agent
             client_info.get('referer'),  # referer - real referer
-            log_entry.inputTokens,  # input_tokens
-            log_entry.outputTokens,  # output_tokens
+            calculated_input_tokens,  # input_tokens - using calculated/estimated values
+            calculated_output_tokens,  # output_tokens - using calculated/estimated values
             input_cost,  # input_cost - calculated from pricing service
             output_cost,  # output_cost - calculated from pricing service
             log_entry.totalLatency,  # total_latency_ms

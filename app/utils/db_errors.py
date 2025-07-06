@@ -56,18 +56,39 @@ class DatabaseErrorHandler:
     
     # Constraint name patterns for better error messages
     CONSTRAINT_PATTERNS = {
+        # Unique constraints
         r'companies_name_key': 'Company name must be unique',
         r'companies_slug_key': 'Company identifier (slug) must be unique',
         r'api_keys_key_hash_key': 'API key already exists',
+        r'api_keys_name_company_id_key': 'API key name must be unique within the company',
+        r'vendors_name_key': 'Vendor name must be unique',
+        r'vendor_models_vendor_id_model_name_key': 'Model name must be unique for this vendor',
+        r'vendor_keys_vendor_id_company_id_key': 'Vendor key already exists for this company',
+        
+        # Foreign key constraints
         r'api_keys_company_id_fkey': 'Company not found',
         r'vendor_keys_company_id_fkey': 'Company not found',
+        r'vendor_keys_vendor_id_fkey': 'Vendor not found',
+        r'vendor_models_vendor_id_fkey': 'Vendor not found',
         r'requests_company_id_fkey': 'Company not found',
         r'requests_api_key_id_fkey': 'API key not found',
+        r'requests_vendor_id_fkey': 'Vendor not found',
+        r'requests_model_id_fkey': 'Model not found',
         r'client_users_company_id_fkey': 'Company not found',
         r'user_sessions_user_id_fkey': 'User not found',
+        r'user_sessions_company_id_fkey': 'Company not found',
         r'cost_calculations_request_id_fkey': 'Request not found',
-        r'hourly_analytics_company_id_fkey': 'Company not found',
-        r'daily_analytics_company_id_fkey': 'Company not found',
+        r'user_analytics_hourly_company_id_fkey': 'Company not found',
+        r'user_analytics_daily_company_id_fkey': 'Company not found',
+        
+        # Check constraints
+        r'companies_rate_limit_rps_check': 'Rate limit must be non-negative',
+        r'companies_monthly_quota_check': 'Monthly quota must be non-negative',
+        r'requests_status_check': 'Invalid request status',
+        r'requests_latency_ms_check': 'Latency must be non-negative',
+        r'cost_calculations_total_cost_check': 'Cost cannot be negative',
+        r'vendor_pricing_per_token_cost_check': 'Token cost must be positive',
+        r'vendor_pricing_per_request_cost_check': 'Request cost must be non-negative',
     }
     
     @classmethod
@@ -146,43 +167,71 @@ class DatabaseErrorHandler:
         if constraint_name:
             for pattern, message in cls.CONSTRAINT_PATTERNS.items():
                 if re.search(pattern, constraint_name):
+                    # Add more context for certain patterns
+                    if 'fkey' in pattern and detail:
+                        # Extract the violating value from detail if available
+                        value_match = re.search(r'Key \([^)]+\)=\(([^)]+)\)', detail)
+                        if value_match:
+                            value = value_match.group(1)
+                            return f"{message} (ID: {value})"
                     return message
         
-        # Generic messages based on error type
+        # Generic messages based on error type with better context
         if error_type == DBErrorType.UNIQUE_VIOLATION:
             if column_name:
-                return f"The {column_name} already exists and violates unique constraint"
-            return "This record already exists and violates unique constraint"
+                column_display = column_name.replace('_', ' ').title()
+                return f"{column_display} already exists"
+            elif table_name:
+                table_display = table_name.replace('_', ' ').title().rstrip('s')
+                return f"{table_display} already exists"
+            return "This record already exists"
         
         elif error_type == DBErrorType.FOREIGN_KEY_VIOLATION:
             if "is not present in table" in detail:
                 referenced_table = cls._extract_referenced_table(detail)
-                if referenced_table:
+                value_match = re.search(r'Key \([^)]+\)=\(([^)]+)\)', detail)
+                if referenced_table and value_match:
+                    value = value_match.group(1)
+                    return f"{referenced_table} with ID '{value}' does not exist"
+                elif referenced_table:
                     return f"Referenced {referenced_table} does not exist"
             return "Referenced record does not exist"
         
         elif error_type == DBErrorType.NOT_NULL_VIOLATION:
             if column_name:
-                return f"The field '{column_name}' is required"
+                column_display = column_name.replace('_', ' ').title()
+                return f"{column_display} is required"
             return "Required field is missing"
         
         elif error_type == DBErrorType.CHECK_VIOLATION:
-            return "Data validation failed - invalid value provided"
+            if constraint_name:
+                if 'rate_limit' in constraint_name:
+                    return "Rate limit must be a positive number"
+                elif 'quota' in constraint_name:
+                    return "Quota must be a positive number"
+                elif 'cost' in constraint_name:
+                    return "Cost values must be non-negative"
+                elif 'latency' in constraint_name:
+                    return "Latency must be a positive number"
+            return "Invalid value provided - check validation constraints"
         
         elif error_type == DBErrorType.INVALID_TEXT_REPRESENTATION:
+            if column_name:
+                column_display = column_name.replace('_', ' ').title()
+                return f"Invalid format for {column_display}"
             return "Invalid data format provided"
         
         elif error_type == DBErrorType.CONNECTION_ERROR:
-            return "Database connection failed"
+            return "Database connection failed - please try again"
         
         elif error_type == DBErrorType.TIMEOUT_ERROR:
-            return "Database operation timed out"
+            return "Database operation timed out - please try again"
         
         elif error_type == DBErrorType.PERMISSION_DENIED:
             return "Insufficient permissions for this operation"
         
         else:
-            return "Database operation failed"
+            return "Database operation failed - please contact support if this persists"
     
     @classmethod
     def _extract_referenced_table(cls, detail: str) -> Optional[str]:

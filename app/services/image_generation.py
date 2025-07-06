@@ -12,7 +12,7 @@ import logging
 from ..database import DatabaseUtils
 from ..utils.logger import get_logger
 from ..utils.db_errors import handle_database_error
-from .pricing_old import PricingService
+from .pricing import FixedPricingService as PricingService
 
 logger = get_logger(__name__)
 
@@ -187,12 +187,13 @@ class ImageGenerationService:
         """Get all supported image generation models with their capabilities"""
         try:
             models_query = """
-            SELECT v.name as vendor, vm.name as model, vm.display_name, vm.description,
+            SELECT v.name as vendor, vm.name as model, vm.name as display_name, 
+                   vm.model_type as description,
                    vp.image_cost_per_item as cost_per_image
             FROM vendor_models vm
             JOIN vendors v ON vm.vendor_id = v.id
             LEFT JOIN vendor_pricing vp ON vm.id = vp.model_id AND vp.is_active = true
-            WHERE vm.model_type = 'image_generation' AND vm.is_active = true
+            WHERE vm.model_type = 'image' AND vm.is_active = true
             ORDER BY v.name, vm.name
             """
             
@@ -375,7 +376,7 @@ class ImageGenerationService:
         """Get model information from database"""
         try:
             model_query = """
-            SELECT vm.id, vm.name, vm.display_name, vm.is_active
+            SELECT vm.id, vm.name, vm.name as display_name, vm.is_active
             FROM vendor_models vm
             JOIN vendors v ON vm.vendor_id = v.id
             WHERE v.name = $1 AND vm.name = $2 AND vm.is_active = true
@@ -453,25 +454,38 @@ class ImageGenerationService:
             
             log_query = """
             INSERT INTO requests (
-                id, request_id, company_id, client_user_id, vendor_id, model_id,
-                method, endpoint, prompt, negative_prompt, image_count, image_urls,
-                image_dimensions, image_quality, image_style, seed, generation_steps,
-                guidance_scale, input_cost, output_cost, timestamp_utc, status_code, total_latency_ms
+                request_id, company_id, client_user_id, vendor_id, model_id,
+                method, endpoint, url,
+                input_cost, output_cost, timestamp_utc, status_code, total_latency_ms,
+                request_sample, response_sample
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
             ) RETURNING id, request_id
             """
+            
+            # Create request and response samples
+            request_sample = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "n": image_count,
+                "size": dimensions,
+                "quality": quality,
+                "style": style
+            }
+            response_sample = {
+                "images": image_urls,
+                "cost": cost
+            }
             
             # For images: input_cost = 0, output_cost = image cost, total_cost auto-generates
             result = await DatabaseUtils.execute_query(
                 log_query,
                 [
-                    uuid4(), request_id, company_id, user_id,
+                    request_id, company_id, user_id,
                     ids_result["vendor_id"], ids_result["model_id"],
-                    "POST", f"/v1/{vendor}/images/generations",
-                    prompt, negative_prompt, image_count, image_urls,
-                    dimensions, quality, style, seed, steps,
-                    guidance_scale, 0.0, cost, datetime.utcnow(), 200, 2500
+                    "POST", f"/v1/images/generations", f"https://api.{vendor}.com/v1/images/generations",
+                    0.0, cost, datetime.now(timezone.utc), 200, 2500,
+                    json.dumps(request_sample), json.dumps(response_sample)
                 ],
                 fetch_all=False
             )

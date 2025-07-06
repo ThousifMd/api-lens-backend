@@ -34,7 +34,7 @@ class InputValidator:
         'username': re.compile(r'^[a-zA-Z0-9_-]{2,50}$'),
         'company_name': re.compile(r'^[a-zA-Z0-9\s\.\-&]{2,100}$'),
         'model_name': re.compile(r'^[a-zA-Z0-9\-\.\_]{1,100}$'),
-        'vendor_name': re.compile(r'^[a-zA-Z0-9]{2,50}$'),
+        'vendor_name': re.compile(r'^[a-zA-Z0-9\-]{2,50}$'),
         'ip_address': re.compile(r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'),
         'url': re.compile(r'^https?:\/\/[^\s/$.?#].[^\s]*$'),
         'timezone': re.compile(r'^[A-Za-z]+\/[A-Za-z_\/]+$')

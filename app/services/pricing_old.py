@@ -100,31 +100,10 @@ class PricingService:
     async def _get_pricing_from_db(vendor: str, model: str, company_id: Optional[UUID] = None) -> Optional[Dict[str, Any]]:
         """Get pricing data from database"""
         try:
-            # First try company-specific pricing if company_id provided
-            if company_id:
-                company_pricing_query = """
-                    SELECT vp.pricing_tier, vp.input_cost_per_1k_tokens, vp.output_cost_per_1k_tokens,
-                           vp.function_call_cost, vp.image_cost_per_item, vp.currency, vp.effective_date
-                    FROM vendor_pricing vp
-                    JOIN vendor_models vm ON vp.model_id = vm.id
-                    JOIN vendors v ON vm.vendor_id = v.id
-                    WHERE v.name ILIKE $1 AND vm.name ILIKE $2 
-                      AND vp.company_id = $3 AND vp.is_active = true
-                      AND vp.effective_date <= NOW()
-                    ORDER BY vp.effective_date DESC
-                    LIMIT 1
-                """
-                
-                company_result = await DatabaseUtils.execute_query(
-                    company_pricing_query,
-                    [vendor, model, company_id],
-                    fetch_all=False
-                )
-                
-                if company_result:
-                    return PricingService._format_pricing_data(company_result, "company_specific")
+            # Skip company-specific pricing - vendor_pricing table doesn't have company_id
+            # All pricing is global across companies
             
-            # Fall back to default pricing
+            # Get default pricing
             default_pricing_query = """
                 SELECT vp.pricing_tier, vp.input_cost_per_1k_tokens, vp.output_cost_per_1k_tokens,
                        vp.function_call_cost, vp.image_cost_per_item, vp.currency, vp.effective_date
@@ -132,7 +111,7 @@ class PricingService:
                 JOIN vendor_models vm ON vp.model_id = vm.id
                 JOIN vendors v ON vm.vendor_id = v.id
                 WHERE v.name ILIKE $1 AND vm.name ILIKE $2 
-                  AND vp.company_id IS NULL AND vp.is_active = true
+                  AND vp.is_active = true
                   AND vp.effective_date <= NOW()
                 ORDER BY vp.effective_date DESC
                 LIMIT 1
