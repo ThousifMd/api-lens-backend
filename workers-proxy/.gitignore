@@ -78,6 +78,7 @@ workers-site/node_modules/
 # Secrets and sensitive data
 secrets.json
 wrangler.toml.backup
+.dev.vars
 
 # Local development
 .wrangler-local/

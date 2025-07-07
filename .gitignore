@@ -25,6 +25,20 @@ simple_*.py
 detailed_*.py
 sessions_*.py
 
+# Migration and utility scripts in root
+add_*.py
+fix_*.py
+apply_*.py
+analyze_*.py
+final_*.py
+get_*.py
+list_*.py
+manual_*.py
+cleanup_*.py
+comprehensive_*.py
+*_test.py
+*_compliance.py
+
 # Server logs
 server_*.log
 debug_*.log
