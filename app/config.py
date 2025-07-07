@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     MASTER_ENCRYPTION_KEY: str = ""
     ADMIN_API_KEY: str = ""
     API_KEY_SALT: str = ""
+    
+    # Request Size Limits
+    MAX_REQUEST_SIZE: int = 10 * 1024 * 1024  # 10MB
+    MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024   # 50MB
+    REQUEST_TIMEOUT: int = 30  # seconds
+    
+    # Security Headers
+    SECURITY_HEADERS_ENABLED: bool = True
+    SECURITY_HSTS_ENABLED: bool = True
+    SECURITY_HSTS_MAX_AGE: int = 31536000  # 1 year
+    SECURITY_FRAME_OPTIONS: str = "DENY"
+    SECURITY_CONTENT_TYPE_NOSNIFF: bool = True
+    SECURITY_XSS_PROTECTION: bool = True
+    CSP_REPORT_URI: Optional[str] = None
 
     # Database Configuration
     DATABASE_URL: str
@@ -83,6 +97,28 @@ class Settings(BaseSettings):
     HEALTH_CHECK_PATH: str = "/health"
     SENTRY_DSN: str = ""
     APM_ENABLED: bool = False
+    
+    # APM Configuration
+    APM_PROVIDER: str = "none"  # Options: none, newrelic, datadog, elastic, sentry
+    NEWRELIC_LICENSE_KEY: Optional[str] = None
+    NEWRELIC_CONFIG_FILE: Optional[str] = None
+    ELASTIC_APM_SERVER_URL: str = "http://localhost:8200"
+    ELASTIC_APM_SECRET_TOKEN: Optional[str] = None
+    ELASTIC_APM_SAMPLE_RATE: float = 0.1
+    DATADOG_API_KEY: Optional[str] = None
+    DATADOG_APP_KEY: Optional[str] = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    SENTRY_PROFILES_SAMPLE_RATE: float = 0.1
+    
+    # Distributed Tracing
+    TRACING_ENABLED: bool = True
+    TRACING_EXPORTER: str = "none"  # Options: none, otlp, jaeger, zipkin
+    OTLP_ENDPOINT: str = "localhost:4317"
+    OTLP_HEADERS: dict = {}
+    JAEGER_AGENT_HOST: str = "localhost"
+    JAEGER_AGENT_PORT: int = 6831
+    JAEGER_COLLECTOR_ENDPOINT: Optional[str] = None
+    ZIPKIN_ENDPOINT: str = "http://localhost:9411/api/v2/spans"
 
     # Logging Configuration
     LOG_FORMAT: str = "json"

@@ -1,6 +1,6 @@
 # Core Framework
 fastapi==0.104.1
-uvicorn[standard]==0.24.0
+uvicorn[standard]
 python-multipart==0.0.6
 
 # Database
@@ -39,12 +39,11 @@ python-dotenv==1.0.0
 pyyaml==6.0.1
 
 # Cryptography & Hashing
-cryptography==41.0.8
-hashlib-compat==1.0.1
+cryptography==41.0.7
 
 # Utilities
 tenacity==8.2.3
-typing-extensions==4.8.0
+typing-extensions>=4.12.2
 
 # Development & Testing (optional in production)
 pytest==7.4.3
@@ -61,6 +60,16 @@ hypercorn==0.15.0
 
 # Monitoring & Health Checks
 psutil==5.9.6
+prometheus-client==0.19.0
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-instrumentation-httpx==0.42b0
+opentelemetry-instrumentation-asyncpg==0.42b0
+opentelemetry-instrumentation-redis==0.42b0
+opentelemetry-exporter-otlp==1.21.0
+opentelemetry-exporter-jaeger==1.21.0
+opentelemetry-exporter-zipkin==1.21.0
 
 # Rate Limiting
 slowapi==0.1.9
@@ -87,21 +96,27 @@ python-decouple==3.8
 
 # Async Extensions
 asyncio-mqtt==0.16.1
-anyio==4.1.0
+anyio
 
 # HTTP Status & Headers
 httptools==0.6.1
 
 # Timezone & Location
 geoip2==4.7.0
-maxminddb==2.2.0
+maxminddb>=2.3.0
 
 # Memory & Performance
 pympler==0.9
 memory-profiler==0.61.0
 
 # API Documentation
-python-markdown==3.5.1
+Markdown==3.5.1
 
 # Export formats (for analytics)
 openpyxl==3.1.2
+
+# APM Providers (optional - install only what you need)
+# newrelic==9.3.0
+# ddtrace==2.3.0
+# elastic-apm==6.19.0
+# sentry-sdk[fastapi]==1.38.0

@@ -463,14 +463,18 @@ class InputValidator:
                 pattern='url', required=False
             )
             
-            validated['errorMessage'] = InputValidator.validate_string(
-                log_data.get('errorMessage'), 'errorMessage',
-                max_length=1000, required=False
+            validated['errorMessage'] = InputValidator.sanitize_input(
+                InputValidator.validate_string(
+                    log_data.get('errorMessage'), 'errorMessage',
+                    max_length=1000, required=False
+                )
             )
             
-            validated['errorCode'] = InputValidator.validate_string(
-                log_data.get('errorCode'), 'errorCode',
-                max_length=50, required=False
+            validated['errorCode'] = InputValidator.sanitize_input(
+                InputValidator.validate_string(
+                    log_data.get('errorCode'), 'errorCode',
+                    max_length=50, required=False
+                )
             )
             
             validated['country'] = InputValidator.validate_string(
@@ -486,6 +490,69 @@ class InputValidator:
             validated['ipAddress'] = InputValidator.validate_string(
                 log_data.get('ipAddress'), 'ipAddress',
                 pattern='ip_address', required=False
+            )
+            
+            # Image generation fields
+            validated['imageCount'] = InputValidator.validate_integer(
+                log_data.get('imageCount'), 'imageCount',
+                min_value=0, max_value=10, required=False
+            )
+            
+            # Image URLs should be a list
+            image_urls = log_data.get('imageUrls')
+            if image_urls is not None:
+                if not isinstance(image_urls, list):
+                    raise ValidationError("imageUrls must be a list")
+                validated['imageUrls'] = image_urls
+            else:
+                validated['imageUrls'] = None
+            
+            # Validate image dimensions format
+            image_dimensions = log_data.get('imageDimensions')
+            if image_dimensions:
+                if not re.match(r'^\d+x\d+$', str(image_dimensions)):
+                    raise ValidationError("imageDimensions must be in format WIDTHxHEIGHT (e.g., 1024x768)")
+                validated['imageDimensions'] = str(image_dimensions)
+            else:
+                validated['imageDimensions'] = None
+            
+            validated['imageQuality'] = InputValidator.validate_string(
+                log_data.get('imageQuality'), 'imageQuality',
+                max_length=50, required=False
+            )
+            
+            validated['imageStyle'] = InputValidator.validate_string(
+                log_data.get('imageStyle'), 'imageStyle',
+                max_length=100, required=False
+            )
+            
+            validated['prompt'] = InputValidator.sanitize_input(
+                InputValidator.validate_string(
+                    log_data.get('prompt'), 'prompt',
+                    max_length=2000, required=False
+                )
+            )
+            
+            validated['negativePrompt'] = InputValidator.sanitize_input(
+                InputValidator.validate_string(
+                    log_data.get('negativePrompt'), 'negativePrompt',
+                    max_length=1000, required=False
+                )
+            )
+            
+            validated['seed'] = InputValidator.validate_integer(
+                log_data.get('seed'), 'seed',
+                min_value=0, max_value=4294967295, required=False  # Max unsigned 32-bit int
+            )
+            
+            validated['generationSteps'] = InputValidator.validate_integer(
+                log_data.get('generationSteps'), 'generationSteps',
+                min_value=1, max_value=150, required=False
+            )
+            
+            validated['guidanceScale'] = InputValidator.validate_float(
+                log_data.get('guidanceScale'), 'guidanceScale',
+                min_value=1.0, max_value=20.0, required=False
             )
             
             return validated
@@ -558,12 +625,49 @@ class InputValidator:
             Sanitized value
         """
         if isinstance(value, str):
-            # Remove potentially dangerous characters
-            value = re.sub(r'[<>"\']', '', value)
-            # Remove control characters
-            value = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', value)
+            # HTML entity encoding for dangerous characters
+            html_escape_table = {
+                "&": "&amp;",
+                '"': "&quot;",
+                "'": "&#x27;",
+                ">": "&gt;",
+                "<": "&lt;",
+                "/": "&#x2F;",
+                "`": "&#x60;",
+                "=": "&#x3D;"
+            }
+            
+            # Escape HTML entities
+            for char, escaped in html_escape_table.items():
+                value = value.replace(char, escaped)
+            
+            # Remove control characters except newlines and tabs
+            value = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]', '', value)
+            
+            # Remove javascript: and data: URLs
+            value = re.sub(r'javascript:', '', value, flags=re.IGNORECASE)
+            value = re.sub(r'data:', '', value, flags=re.IGNORECASE)
+            value = re.sub(r'vbscript:', '', value, flags=re.IGNORECASE)
+            
+            # Remove script tags and event handlers
+            value = re.sub(r'<script[^>]*>.*?</script>', '', value, flags=re.IGNORECASE | re.DOTALL)
+            value = re.sub(r'\bon\w+\s*=', '', value, flags=re.IGNORECASE)
+            
             # Trim whitespace
             value = value.strip()
+            
+            # Limit length to prevent buffer overflow
+            max_length = 10000
+            if len(value) > max_length:
+                value = value[:max_length]
+        
+        elif isinstance(value, list):
+            # Recursively sanitize list items
+            value = [InputValidator.sanitize_input(item) for item in value]
+            
+        elif isinstance(value, dict):
+            # Recursively sanitize dictionary values
+            value = {k: InputValidator.sanitize_input(v) for k, v in value.items()}
         
         return value
     

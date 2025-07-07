@@ -4,11 +4,12 @@ Clean, efficient, and timezone-aware
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Header, status
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import uuid
 import json
+import re
 from uuid import UUID
 
 from app.database import DatabaseUtils
@@ -63,6 +64,18 @@ class OptimizedLogEntry(BaseModel):
     
     # Cost
     cost: float
+    
+    # Image generation fields (optional)
+    imageCount: Optional[int] = None
+    imageUrls: Optional[List[str]] = None
+    imageDimensions: Optional[str] = None
+    imageQuality: Optional[str] = None
+    imageStyle: Optional[str] = None
+    prompt: Optional[str] = None
+    negativePrompt: Optional[str] = None
+    seed: Optional[int] = None
+    generationSteps: Optional[int] = None
+    guidanceScale: Optional[float] = None
 
 # ============================================================================
 # Helper Functions
@@ -185,12 +198,10 @@ async def get_or_create_vendor_model(vendor_name: str, model_name: str) -> Optio
         # Create model
         model_result = await DatabaseUtils.execute_query("""
             INSERT INTO vendor_models (
-                id, vendor_id, name, slug, model_type, 
-                input_price_per_1k, output_price_per_1k
+                id, vendor_id, name, slug, model_type
             )
             VALUES (
-                gen_random_uuid(), $1, $2, $3, 'chat', 
-                0.001, 0.002
+                gen_random_uuid(), $1, $2, $3, 'chat'
             ) 
             RETURNING id
         """, [vendor_id, model_name, model_name.lower().replace('.', '-')], fetch_all=True)
@@ -212,6 +223,8 @@ async def get_or_create_user_session(company_id: str, user_id: str) -> Optional[
         return None
         
     try:
+        logger.info(f"Getting/creating user session for company {company_id}, user {user_id}")
+        
         # First get or create client user
         client_user_result = await DatabaseUtils.execute_query("""
             INSERT INTO client_users (company_id, client_user_id, display_name)
@@ -231,35 +244,37 @@ async def get_or_create_user_session(company_id: str, user_id: str) -> Optional[
         # Try to get existing active session
         session_result = await DatabaseUtils.execute_query("""
             SELECT id FROM user_sessions 
-            WHERE client_user_id = $1 AND is_active = true
-            ORDER BY last_activity_at_utc DESC
+            WHERE client_user_id = $1 AND ended_at IS NULL
+            ORDER BY started_at DESC
             LIMIT 1
         """, [client_user_uuid], fetch_all=True)
         
         if session_result:
-            # Update last activity
+            # Update request count
             await DatabaseUtils.execute_query("""
                 UPDATE user_sessions 
-                SET last_activity_at_utc = NOW(), request_count = request_count + 1
+                SET request_count = request_count + 1
                 WHERE id = $1
             """, [session_result[0]['id']], fetch_all=False)
             return str(session_result[0]['id'])
         
         # Create new session
         new_session_result = await DatabaseUtils.execute_query("""
-            INSERT INTO user_sessions (client_user_id, session_id, is_active) 
-            VALUES ($1, $2, true) 
+            INSERT INTO user_sessions (client_user_id, session_id) 
+            VALUES ($1, $2) 
             RETURNING id
         """, [client_user_uuid, session_id], fetch_all=True)
         
         if new_session_result:
-            return str(new_session_result[0]['id'])
+            session_id = str(new_session_result[0]['id'])
+            logger.info(f"Created new session: {session_id}")
+            return session_id
         else:
             logger.error(f"Failed to create user session for: {user_id}")
             return None
         
     except Exception as e:
-        logger.error(f"Error with user session {user_id}: {e}")
+        logger.error(f"Error with user session {user_id}: {e}", exc_info=True)
         return None
 
 def validate_uuid(uuid_string: str, field_name: str = "UUID") -> str:
@@ -297,6 +312,37 @@ async def receive_optimized_log_entry(
                 detail=f"Input validation failed: {str(ve)}"
             )
         
+        # Validate image generation fields
+        if log_entry.imageCount is not None:
+            logger.info(f"Validating imageCount: {log_entry.imageCount}")
+            if not 0 <= log_entry.imageCount <= 10:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="image_count must be between 0 and 10"
+                )
+        
+        if log_entry.imageDimensions:
+            # Validate format WIDTHxHEIGHT
+            if not re.match(r'^\d+x\d+$', log_entry.imageDimensions):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="image_dimensions must be in format WIDTHxHEIGHT (e.g., 1024x768)"
+                )
+        
+        if log_entry.generationSteps is not None:
+            if not 1 <= log_entry.generationSteps <= 150:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="generation_steps must be between 1 and 150"
+                )
+        
+        if log_entry.guidanceScale is not None:
+            if not 1.0 <= log_entry.guidanceScale <= 20.0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="guidance_scale must be between 1.0 and 20.0"
+                )
+        
         # Get authenticated company and API key info
         company_id = str(auth_info['company_id'])
         api_key_id = auth_info.get('api_key_id')
@@ -304,7 +350,12 @@ async def receive_optimized_log_entry(
         # Validate user_id if provided
         user_id = None
         if log_entry.userId:
-            user_id = validate_uuid(log_entry.userId, "userId")
+            try:
+                user_id = validate_uuid(log_entry.userId, "userId")
+                logger.info(f"Validated user_id: {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to validate userId: {log_entry.userId} - {str(e)}")
+                user_id = log_entry.userId  # Use the raw value if it's not a valid UUID
         
         # Get real client IP and location
         client_ip = client_info.get('ip_address')
@@ -327,21 +378,21 @@ async def receive_optimized_log_entry(
             }
         
         # 1. Get or create vendor model
-        vendor_model_id = await get_or_create_vendor_model(
+        model_id = await get_or_create_vendor_model(
             log_entry.vendor, 
             log_entry.model
         )
         
-        if not vendor_model_id:
+        if not model_id:
             raise ValueError(f"Failed to get/create vendor model {log_entry.vendor}/{log_entry.model}")
         
         # Get the vendor_id from the vendor_models table
         vendor_result = await DatabaseUtils.execute_query("""
             SELECT vendor_id FROM vendor_models WHERE id = $1
-        """, [vendor_model_id], fetch_all=True)
+        """, [model_id], fetch_all=True)
         
         if not vendor_result:
-            raise ValueError(f"Failed to get vendor_id for model {vendor_model_id}")
+            raise ValueError(f"Failed to get vendor_id for model {model_id}")
         
         vendor_id = vendor_result[0]['vendor_id']
         
@@ -349,7 +400,9 @@ async def receive_optimized_log_entry(
         user_session_id = None
         client_user_id = None
         if user_id:
+            logger.info(f"Creating session for user: {user_id}")
             user_session_id = await get_or_create_user_session(company_id, user_id)
+            logger.info(f"Session creation returned: {user_session_id}")
             if user_session_id:
                 # Get client_user_id from session
                 session_result = await DatabaseUtils.execute_query("""
@@ -410,8 +463,10 @@ async def receive_optimized_log_entry(
                 input_cost, output_cost,
                 total_latency_ms, vendor_latency_ms,
                 status_code, error_type, error_message, error_code,
-                request_sample, response_sample
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38)
+                request_sample, response_sample,
+                image_count, image_urls, image_dimensions, image_quality, image_style,
+                prompt, negative_prompt, seed, generation_steps, guidance_scale
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48)
             RETURNING id, created_at
         """, [
             log_entry.requestId,  # request_id
@@ -419,7 +474,7 @@ async def receive_optimized_log_entry(
             client_user_id,  # client_user_id 
             user_session_id,  # user_session_id
             vendor_id,
-            vendor_model_id,  # model_id
+            model_id,  # model_id
             api_key_id,  # api_key_id - from authentication middleware
             log_entry.method,
             log_entry.endpoint,
@@ -451,7 +506,17 @@ async def receive_optimized_log_entry(
             log_entry.errorMessage,  # error_message
             log_entry.errorCode,  # error_code
             None,  # request_sample
-            None   # response_sample
+            None,   # response_sample
+            log_entry.imageCount,  # image_count
+            log_entry.imageUrls,  # image_urls
+            log_entry.imageDimensions,  # image_dimensions
+            log_entry.imageQuality,  # image_quality
+            log_entry.imageStyle,  # image_style
+            log_entry.prompt,  # prompt
+            log_entry.negativePrompt,  # negative_prompt
+            log_entry.seed,  # seed
+            log_entry.generationSteps,  # generation_steps
+            log_entry.guidanceScale   # guidance_scale
         ], fetch_all=True)
         
         request_id = request_result[0]['id']
@@ -474,12 +539,15 @@ async def receive_optimized_log_entry(
                 "source": cost_result.get('pricing_source', 'unknown')
             },
             "api_key_id": api_key_id,
-            "vendor_model_id": vendor_model_id,
+            "model_id": model_id,
             "user_session_id": user_session_id
         }
         
+    except HTTPException:
+        # Re-raise HTTP exceptions (like validation errors)
+        raise
     except Exception as e:
-        logger.error(f"Error processing optimized log entry: {str(e)}")
+        logger.error(f"Error processing optimized log entry: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process optimized log entry: {str(e)}"
@@ -500,7 +568,12 @@ async def get_optimized_stats():
                 AVG(r.total_cost) as avg_cost,
                 SUM(r.input_tokens) as total_input_tokens,
                 SUM(r.output_tokens) as total_output_tokens,
-                AVG(r.response_time_ms) as avg_latency
+                AVG(r.response_time_ms) as avg_latency,
+                -- Image generation stats
+                COUNT(CASE WHEN r.image_count > 0 THEN 1 END) as image_requests,
+                SUM(COALESCE(r.image_count, 0)) as total_images_generated,
+                AVG(CASE WHEN r.image_count > 0 THEN r.image_count END) as avg_images_per_request,
+                MODE() WITHIN GROUP (ORDER BY r.image_dimensions) FILTER (WHERE r.image_dimensions IS NOT NULL) as most_common_dimensions
             FROM requests r
             JOIN companies c ON r.company_id = c.id
             JOIN vendors v ON r.vendor_id = v.id
@@ -517,7 +590,12 @@ async def get_optimized_stats():
                 COUNT(DISTINCT r.company_id) as unique_companies,
                 COUNT(DISTINCT r.model_id) as unique_models,
                 SUM(r.total_cost) as total_cost,
-                AVG(r.response_time_ms) as avg_latency
+                AVG(r.response_time_ms) as avg_latency,
+                -- Image generation summary
+                COUNT(CASE WHEN r.image_count > 0 THEN 1 END) as total_image_requests,
+                SUM(COALESCE(r.image_count, 0)) as total_images_generated,
+                COUNT(DISTINCT CASE WHEN r.image_count > 0 THEN r.vendor_id END) as image_vendors,
+                COUNT(DISTINCT CASE WHEN r.image_count > 0 THEN r.model_id END) as image_models
             FROM requests r
             WHERE r.success = true
         """, fetch_all=True)

@@ -11,7 +11,42 @@ venv/
 .env.production
 .env.staging
 
-# API Keys and secrets
-*api_key*
-*secret*
-*token*
+# API Keys and secrets (but keep .env.example)
+!.env.example
+!.env.template
+
+# Test and debugging scripts
+test_*.py
+debug_*.py
+check_*.py
+clean_*.py
+verify_*.py
+simple_*.py
+detailed_*.py
+sessions_*.py
+
+# Server logs
+server_*.log
+debug_*.log
+
+# Generated files
+openapi_schema.json
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+
+# Python
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
