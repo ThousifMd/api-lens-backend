@@ -117,3 +117,6 @@ openpyxl==3.1.2
 # ddtrace==2.3.0
 # elastic-apm==6.19.0
 # sentry-sdk[fastapi]==1.38.0
+
+# Production server
+gunicorn==21.2.0

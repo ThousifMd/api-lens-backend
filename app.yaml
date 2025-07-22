@@ -1,0 +1,55 @@
+name: api-lens-backend
+region: nyc
+services:
+  - name: api
+    github:
+      repo: ThousifMd/api-lens-backend
+      branch: main
+      deploy_on_push: true
+    build_command: pip install -r requirements.txt
+    run_command: gunicorn --workers=4 --worker-class uvicorn.workers.UvicornWorker app.main:app --bind=0.0.0.0:8080
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    health_check:
+      http_path: /health/
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: SUPABASE_POSTGRES_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: ADMIN_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: MASTER_ENCRYPTION_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: API_KEY_SALT
+        scope: RUN_TIME
+        type: SECRET
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: ANTHROPIC_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: GEMINI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: ENVIRONMENT
+        scope: RUN_TIME
+        value: "production"
+      - key: DEBUG
+        scope: RUN_TIME
+        value: "false"
+      - key: LOG_LEVEL
+        scope: RUN_TIME
+        value: "INFO"
+      - key: CORS_ORIGINS
+        scope: RUN_TIME
+        value: '["*"]'
