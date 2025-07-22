@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import Response
 
 import asyncpg
-import redis.exceptions
+# import redis.exceptions  # Removed unused Redis
 from pydantic import ValidationError
 
 from ..utils.logger import get_logger
@@ -86,8 +86,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         elif isinstance(exc, asyncpg.PostgresError):
             return await self._handle_database_error(exc, error_context)
         
-        elif isinstance(exc, redis.exceptions.RedisError):
-            return await self._handle_redis_error(exc, error_context)
+        # Redis error handling removed - not implemented
         
         elif isinstance(exc, TimeoutError):
             return await self._handle_timeout_error(exc, error_context)
@@ -248,35 +247,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             headers={"X-Request-ID": context["request_id"]}
         )
     
-    async def _handle_redis_error(
-        self, 
-        exc: redis.exceptions.RedisError, 
-        context: Dict[str, Any]
-    ) -> JSONResponse:
-        """Handle Redis cache errors"""
-        
-        logger.error(
-            f"Redis Error: {str(exc)}",
-            extra={
-                **context,
-                "exception_type": "RedisError",
-                "redis_message": str(exc)
-            }
-        )
-        
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "error": {
-                    "type": "cache_error",
-                    "code": 503,
-                    "message": "Cache service temporarily unavailable",
-                    "request_id": context["request_id"],
-                    "timestamp": context["timestamp"]
-                }
-            },
-            headers={"X-Request-ID": context["request_id"]}
-        )
+    # Redis error handler removed - not implemented
     
     async def _handle_timeout_error(
         self, 

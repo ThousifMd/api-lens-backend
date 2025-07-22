@@ -161,112 +161,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         return "; ".join(policy_directives)
 
-class RateLimitingMiddleware(BaseHTTPMiddleware):
-    """
-    Basic rate limiting middleware
-    """
-    
-    def __init__(
-        self,
-        app,
-        default_rate_limit: int = 100,  # requests per minute
-        rate_limit_window: int = 60,    # window in seconds
-    ):
-        super().__init__(app)
-        self.default_rate_limit = default_rate_limit
-        self.rate_limit_window = rate_limit_window
-        self.request_counts = {}  # Simple in-memory store (use Redis in production)
-    
-    async def dispatch(self, request: Request, call_next):
-        """Apply rate limiting"""
-        
-        # Get client identifier
-        client_id = self._get_client_identifier(request)
-        
-        # Check rate limit
-        if self._is_rate_limited(client_id):
-            # Return rate limit exceeded response
-            from starlette.responses import JSONResponse
-            from fastapi import status
-            
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={
-                    "error": {
-                        "type": "rate_limit_exceeded",
-                        "code": 429,
-                        "message": "Rate limit exceeded. Please try again later.",
-                        "retry_after": self.rate_limit_window
-                    }
-                },
-                headers={
-                    "X-RateLimit-Limit": str(self.default_rate_limit),
-                    "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(int(time.time()) + self.rate_limit_window),
-                    "Retry-After": str(self.rate_limit_window)
-                }
-            )
-        
-        # Process request
-        response = await call_next(request)
-        
-        # Add rate limit headers
-        remaining = self._get_remaining_requests(client_id)
-        response.headers["X-RateLimit-Limit"] = str(self.default_rate_limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(int(time.time()) + self.rate_limit_window)
-        
-        return response
-    
-    def _get_client_identifier(self, request: Request) -> str:
-        """Get client identifier for rate limiting"""
-        # Try to get API key first
-        api_key = (
-            request.headers.get("X-API-Key") or
-            request.headers.get("Authorization", "").replace("Bearer ", "") or
-            request.query_params.get("api_key")
-        )
-        
-        if api_key and len(api_key) > 10:
-            return f"api_key:{api_key[:10]}..."
-        
-        # Fall back to IP address
-        client_ip = (
-            request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
-            request.headers.get("X-Real-IP") or
-            request.client.host if request.client else "unknown"
-        )
-        
-        return f"ip:{client_ip}"
-    
-    def _is_rate_limited(self, client_id: str) -> bool:
-        """Check if client has exceeded rate limit"""
-        import time
-        
-        current_time = int(time.time())
-        window_start = current_time - self.rate_limit_window
-        
-        # Clean old entries
-        if client_id in self.request_counts:
-            self.request_counts[client_id] = [
-                timestamp for timestamp in self.request_counts[client_id] 
-                if timestamp > window_start
-            ]
-        else:
-            self.request_counts[client_id] = []
-        
-        # Check if limit exceeded
-        if len(self.request_counts[client_id]) >= self.default_rate_limit:
-            return True
-        
-        # Add current request
-        self.request_counts[client_id].append(current_time)
-        return False
-    
-    def _get_remaining_requests(self, client_id: str) -> int:
-        """Get remaining requests for client"""
-        current_count = len(self.request_counts.get(client_id, []))
-        return max(0, self.default_rate_limit - current_count)
 
 class IPWhitelistMiddleware(BaseHTTPMiddleware):
     """
@@ -335,6 +229,5 @@ import time
 # Export middleware classes
 __all__ = [
     "SecurityHeadersMiddleware", 
-    "RateLimitingMiddleware", 
     "IPWhitelistMiddleware"
 ]

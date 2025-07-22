@@ -18,7 +18,6 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from opentelemetry.trace import Status, StatusCode
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
-from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -144,8 +143,6 @@ class TracingService:
             # Instrument database clients
             AsyncPGInstrumentor().instrument(tracer_provider=self.tracer_provider)
             
-            # Instrument Redis
-            RedisInstrumentor().instrument(tracer_provider=self.tracer_provider)
             
             # Instrument HTTP client
             HTTPXClientInstrumentor().instrument(tracer_provider=self.tracer_provider)

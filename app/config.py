@@ -58,20 +58,9 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = ""
     SUPABASE_POSTGRES_URL: str = ""
 
-    # Redis Configuration
-    REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
-    REDIS_PASSWORD: Optional[str] = None
-    REDIS_DB: int = 0
-    REDIS_POOL_SIZE: int = 10
-    REDIS_SOCKET_TIMEOUT: int = 5
-    REDIS_HEALTH_CHECK_INTERVAL: int = 30
-
-    # Rate Limiting
-    RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_STRATEGY: str = "fixed_window"
-    RATE_LIMIT_REQUESTS: int = 100  # Legacy
+    # Rate Limiting (for future implementation)
+    RATE_LIMIT_ENABLED: bool = False
+    RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_PERIOD: int = 60     # Legacy
     RATE_LIMIT_DEFAULT: int = 100   # Legacy
     RATE_LIMIT_DEFAULT_PER_MINUTE: int = 100

@@ -22,9 +22,6 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 email-validator==2.1.0
 
-# Cache & Redis
-redis[hiredis]==5.0.1
-aioredis==2.0.1
 
 # Date & Time
 pytz==2023.3
@@ -49,6 +46,10 @@ typing-extensions>=4.12.2
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-mock==3.12.0
+pytest-cov==4.1.0
+pytest-xdist==3.5.0
+faker==20.1.0
+factory-boy==3.3.0
 black==23.11.0
 isort==5.12.0
 flake8==6.1.0
@@ -66,14 +67,10 @@ opentelemetry-sdk==1.21.0
 opentelemetry-instrumentation-fastapi==0.42b0
 opentelemetry-instrumentation-httpx==0.42b0
 opentelemetry-instrumentation-asyncpg==0.42b0
-opentelemetry-instrumentation-redis==0.42b0
 opentelemetry-exporter-otlp==1.21.0
 opentelemetry-exporter-jaeger==1.21.0
 opentelemetry-exporter-zipkin==1.21.0
 
-# Rate Limiting
-slowapi==0.1.9
-limits==3.6.0
 
 # Security Headers
 secure==0.3.0

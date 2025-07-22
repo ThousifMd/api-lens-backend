@@ -79,6 +79,7 @@ class DatabaseConnectionManager:
                 "server_settings": {
                     "application_name": "api_lens_backend",
                     "jit": "off",  # Disable JIT for better performance with short queries
+                    "search_path": "backend,public"  # Use backend schema by default
                 }
             }
         )
@@ -112,7 +113,8 @@ class DatabaseConnectionManager:
                 command_timeout=60,
                 server_settings={
                     'application_name': 'api_lens_backend_pool',
-                    'jit': 'off'
+                    'jit': 'off',
+                    'search_path': 'backend,public'  # Use backend schema by default
                 }
             )
             logger.info("AsyncPG connection pool created successfully")
@@ -348,7 +350,7 @@ async def get_company_db(company_id: str):
     """Get database session with company-specific schema"""
     async with get_db_session() as session:
         try:
-            await session.execute(text(f'SET search_path TO company_{company_id}, public'))
+            await session.execute(text(f'SET search_path TO company_{company_id}, backend, public'))
             yield session
         except Exception as e:
             logger.error(f"Failed to set company schema for {company_id}: {e}")

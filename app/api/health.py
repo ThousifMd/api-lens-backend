@@ -12,7 +12,7 @@ from fastapi import APIRouter, status, HTTPException, Depends
 from pydantic import BaseModel
 
 from ..database import DatabaseUtils
-from ..services.cache import cache_health_check, get_cache_stats
+# from ..services.cache import cache_health_check, get_cache_stats  # Removed unused Redis
 from ..config import get_settings
 from ..utils.logger import get_logger
 
@@ -88,36 +88,7 @@ async def check_database_health() -> ServiceHealth:
             message=f"Database connection failed: {str(e)}"
         )
 
-async def check_cache_health() -> ServiceHealth:
-    """Check Redis cache connectivity and performance"""
-    start_time = time.time()
-    
-    try:
-        cache_healthy = await cache_health_check()
-        response_time = (time.time() - start_time) * 1000
-        
-        if cache_healthy:
-            cache_stats = await get_cache_stats()
-            return ServiceHealth(
-                status="healthy",
-                response_time_ms=round(response_time, 2),
-                message="Cache connection successful",
-                details=cache_stats.get('health', {}) if isinstance(cache_stats, dict) else {}
-            )
-        else:
-            return ServiceHealth(
-                status="unhealthy",
-                response_time_ms=round(response_time, 2),
-                message="Cache health check failed"
-            )
-            
-    except Exception as e:
-        response_time = (time.time() - start_time) * 1000
-        return ServiceHealth(
-            status="unhealthy",
-            response_time_ms=round(response_time, 2),
-            message=f"Cache connection failed: {str(e)}"
-        )
+# Cache health check removed - Redis not implemented
 
 async def check_external_services() -> Dict[str, ServiceHealth]:
     """Check external service connectivity"""
@@ -367,8 +338,8 @@ def determine_overall_status(services: Dict[str, ServiceHealth]) -> str:
                     elif nested_service.status == "degraded":
                         degraded_count += 1
     
-    # Core services (database, cache) are critical
-    core_services = ['database', 'cache']
+    # Core services (database) are critical
+    core_services = ['database']
     core_unhealthy = any(
         services.get(service, ServiceHealth(status="unknown")).status == "unhealthy" 
         for service in core_services
@@ -422,11 +393,10 @@ async def detailed_health_check():
     try:
         # Run all health checks concurrently
         database_task = check_database_health()
-        cache_task = check_cache_health()
         external_task = check_external_services()
         
-        database_health, cache_health, external_services = await asyncio.gather(
-            database_task, cache_task, external_task,
+        database_health, external_services = await asyncio.gather(
+            database_task, external_task,
             return_exceptions=True
         )
         
@@ -437,11 +407,7 @@ async def detailed_health_check():
                 message=f"Database check failed: {str(database_health)}"
             )
         
-        if isinstance(cache_health, Exception):
-            cache_health = ServiceHealth(
-                status="unhealthy", 
-                message=f"Cache check failed: {str(cache_health)}"
-            )
+        # Cache health check removed
         
         if isinstance(external_services, Exception):
             external_services = {}
@@ -449,7 +415,6 @@ async def detailed_health_check():
         # Compile all service statuses
         services = {
             "database": database_health,
-            "cache": cache_health,
             "external_services": external_services
         }
         
@@ -498,15 +463,13 @@ async def readiness_probe():
     try:
         # Check critical dependencies
         db_result = await DatabaseUtils.execute_query("SELECT 1", [], fetch_all=False)
-        cache_healthy = await cache_health_check()
         
-        if db_result and cache_healthy:
+        if db_result:
             return {
                 "status": "ready",
                 "timestamp": datetime.utcnow().isoformat(),
                 "services": {
-                    "database": "healthy",
-                    "cache": "healthy"
+                    "database": "healthy"
                 }
             }
         else:

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -14,13 +15,14 @@ import uuid
 
 from app.database import db_health_check, init_database, close_database, db_manager
 from app.api.auth import router as auth_router
-from app.api.proxy_optimized import router as proxy_optimized_router
+from app.api.auth_verify import router as auth_verify_router
+from app.api.proxy_logs import router as proxy_logs_router
 from app.api.health import router as health_router
 from app.services.auth import get_auth_performance_stats
 from app.config import get_settings
 from app.utils.logger import get_logger
 from app.middleware.error_handling import ErrorHandlingMiddleware, RequestLoggingMiddleware
-from app.middleware.security import SecurityHeadersMiddleware, RateLimitingMiddleware
+from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.request_size import RequestSizeLimitMiddleware, MultipartSizeLimitMiddleware
 from app.api.openapi_docs import get_custom_openapi_schema
 from app.monitoring.metrics import get_metrics, get_metrics_content_type, record_request
@@ -207,7 +209,6 @@ async def add_security_headers(request: Request, call_next):
 
 # 6. Rate Limiting - Simple in-memory rate limiting
 from collections import defaultdict
-from datetime import datetime, timedelta
 
 rate_limit_store = defaultdict(list)
 
@@ -361,7 +362,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(health_router)
 app.include_router(auth_router)
-app.include_router(proxy_optimized_router)
+app.include_router(auth_verify_router)
+app.include_router(proxy_logs_router)
 
 # Metrics endpoint
 @app.get("/metrics", tags=["Monitoring"], include_in_schema=False)
